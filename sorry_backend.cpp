@@ -15,7 +15,10 @@ std::mt19937 createRandomEngine() {
   return std::mt19937(seq);
 }
 
-SorryBackend::SorryBackend(QObject *parent) : QObject(parent), eng_(createRandomEngine()) {
+SorryBackend::SorryBackend(QObject *parent) : QObject(parent) {
+  // randomSeed_ = -1701881796;
+  randomSeed_ = std::random_device()();
+  eng_ = std::mt19937(randomSeed_);
   connect(this, &SorryBackend::actionScoresChanged, &actionsList_, &ActionsList::setActionsAndScores);
   sorryState_.drawRandomStartingCards(eng_);
   calculateScores();
@@ -41,7 +44,7 @@ QVector<ActionForQml*> SorryBackend::getActions() {
 void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
-    auto actionsAndScores = mcts_.getActionsWithScores();
+    auto actionsAndScores = mcts_.getActionScores();
     emit actionScoresChanged(actionsAndScores);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
@@ -67,9 +70,14 @@ void SorryBackend::terminateThreads() {
 void SorryBackend::doAction(int index) {
   terminateThreads();
   // Do action
-  const auto &action = actionsList_.getAction(index);
-  std::cout << "Doing action " << action.toString() << std::endl;
-  sorryState_.doAction(action, eng_);
+  const auto action = actionsList_.getAction(index);
+  if (!action) {
+    std::cout << "Want to do unknown action (index " << index << ")" << std::endl;
+    return;
+  }
+  std::cout << "Doing action " << action->toString() << std::endl;
+  sorryState_.doAction(*action, eng_);
+  emit moveCountChanged();
   emit actionsChanged();
   // Restart prober
   calculateScores();
@@ -93,16 +101,13 @@ QVector<QString> SorryBackend::getCardStrings() const {
   return result;
 }
 
-int SorryBackend::getMoveCount() const {
-  return sorryState_.getTotalActionCount();
-}
-
-QVector<int> SorryBackend::getCardIndicesForAction(const ActionForQml *qmlAction) const {
-  if (qmlAction == nullptr) {
+QVector<int> SorryBackend::getCardIndicesForAction(int index) const {
+  const auto action = actionsList_.getAction(index);
+  if (!action) {
+    std::cout << "Want to get card indices for unknown action (index " << index << ")" << std::endl;
     return {};
   }
-  const auto &action = qmlAction->getAction();
-  const auto card = action.card;
+  const auto card = action->card;
   const auto hand = sorryState_.getHand();
   QVector<int> result;
   for (int i=0; i<hand.size(); ++i) {
@@ -113,20 +118,24 @@ QVector<int> SorryBackend::getCardIndicesForAction(const ActionForQml *qmlAction
   return result;
 }
 
-QVector<int> SorryBackend::getSrcAndDestPositionsForAction(const ActionForQml *qmlAction) const {
-  const sorry::Action &action = qmlAction->getAction();
-  if (action.actionType == sorry::Action::ActionType::kDiscard) {
+QVector<int> SorryBackend::getSrcAndDestPositionsForAction(int index) const {
+  const auto action = actionsList_.getAction(index);
+  if (!action) {
+    std::cout << "Want to get src and dest pos for unknown action (index " << index << ")" << std::endl;
+    return {};
+  }
+  if (action->actionType == sorry::Action::ActionType::kDiscard) {
     return {};
   }
   QVector<int> result;
   std::array<int, 4> piecePositions = sorryState_.getPiecePositions();
-  result.push_back(action.piece1Index);
-  result.push_back(piecePositions[action.piece1Index]);
-  result.push_back(action.move1Destination);
-  if (action.actionType == sorry::Action::ActionType::kDoubleMove) {
-    result.push_back(action.piece2Index);
-    result.push_back(piecePositions[action.piece2Index]);
-    result.push_back(action.move2Destination);
+  result.push_back(action->piece1Index);
+  result.push_back(piecePositions[action->piece1Index]);
+  result.push_back(action->move1Destination);
+  if (action->actionType == sorry::Action::ActionType::kDoubleMove) {
+    result.push_back(action->piece2Index);
+    result.push_back(piecePositions[action->piece2Index]);
+    result.push_back(action->move2Destination);
   }
   return result;
 }
@@ -160,28 +169,31 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
     return QVariant();
   }
   
-  const ActionAndScore &actionAndScore = actions_.at(index.row());
+  const ActionScore &actionScore = actions_.at(index.row());
   if (role == NameRole) {
-    const sorry::Action &action = actionAndScore.first;
+    const sorry::Action &action = actionScore.action;
     return QVariant(QString::fromStdString(action.toString()));
   } else if (role == ScoreRole) {
-    return QVariant(actionAndScore.second);
+    return QVariant(actionScore.score);
+  } else if (role == AverageMovesRole) {
+    return QVariant(actionScore.averageMoveCount);
   }
   return QVariant();
 }
 
-void ActionsList::setActionsAndScores(const std::vector<ActionAndScore> &actionsAndScores) {
+void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAndScores) {
   std::vector<bool> actionSeen(actions_.size(), false);
   // beginResetModel();
-  for (const auto &givenActionAndScore : actionsAndScores) {
-    const sorry::Action &givenAction = givenActionAndScore.first;
+  for (const auto &givenActionScore : actionsAndScores) {
+    const sorry::Action &givenAction = givenActionScore.action;
     bool foundAction = false;
     for (int i=0; i<actions_.size(); ++i) {
-      ActionAndScore &actionAndScore = actions_[i];
-      if (actionAndScore.first == givenAction) {
+      ActionScore &actionScore = actions_[i];
+      if (actionScore.action == givenAction) {
         // Found our action, update the score
-        actionAndScore.second = givenActionAndScore.second;
-        emit dataChanged(this->index(i), this->index(i), {ScoreRole});
+        actionScore.score = givenActionScore.score;
+        actionScore.averageMoveCount = givenActionScore.averageMoveCount;
+        emit dataChanged(this->index(i), this->index(i), {ScoreRole, AverageMovesRole});
         actionSeen[i] = true;
         foundAction = true;
         break;
@@ -191,12 +203,11 @@ void ActionsList::setActionsAndScores(const std::vector<ActionAndScore> &actions
       continue;
     }
     beginInsertRows(QModelIndex(), actions_.size(), actions_.size());
-    actions_.push_back(givenActionAndScore);
+    actions_.push_back(givenActionScore);
     endInsertRows();
   }
   for (int i=actionSeen.size()-1; i>=0; --i) {
     if (!actionSeen[i]) {
-      std::cout << "Did not see " << i << std::endl;
       beginRemoveRows(QModelIndex(), i, i);
       actions_.remove(i);
       endRemoveRows();
@@ -205,6 +216,9 @@ void ActionsList::setActionsAndScores(const std::vector<ActionAndScore> &actions
   // endResetModel();
 }
 
-const sorry::Action& ActionsList::getAction(int index) const {
-  return actions_.at(index).first;
+std::optional<sorry::Action> ActionsList::getAction(int index) const {
+  if (index < 0 || index >= actions_.size()) {
+    return {};
+  }
+  return actions_.at(index).action;
 }

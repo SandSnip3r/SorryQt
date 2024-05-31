@@ -4,8 +4,8 @@ import Sorry
 
 Window {
   id: window
-  width: 1300
-  height: 612
+  width: 1400
+  height: 912
   visible: true
   title: qsTr("Sorry")
   
@@ -132,8 +132,6 @@ Window {
           console.log("Card ", i, " is null")
         }
       }
-
-      moveCountText.moveCount = SorryBackend.getMoveCount()
     }
 
     // Ensure all dynamic rectangles are destroyed when parentRectangle is destroyed
@@ -203,13 +201,12 @@ Window {
         canvas.index2 = -1
         canvas.srcPos2 = -1
         canvas.destPos2 = -1
+        canvas.requestPaint()
       }
 
       onPaint: {
         // Get the canvas context
         var ctx = getContext("2d");
-        // Fill a solid color rectangle
-        // ctx.fillStyle = Qt.rgba(1, 0.7, 0.1, 0.1);
         ctx.clearRect(0, 0, width, height);
 
         var adjust = board.basePieceSize * board.height / 2
@@ -223,10 +220,6 @@ Window {
           var dest = board.getPos(index2, destPos2)
           arrow(ctx, src[0]+adjust, src[1]+adjust, dest[0]+adjust, dest[1]+adjust)
         }
-
-        // Draw an arrow on given context starting at position (0, 0) -- top left corner up to position (mouseX, mouseY)
-        //   determined by mouse coordinates position
-        // arrow(ctx, 0, 0, ma.mouseX, ma.mouseY)
       }
 
       MouseArea {
@@ -238,29 +231,36 @@ Window {
         onMouseYChanged: canvas.requestPaint()
       }
     }
+
+    Connections {
+      target: SorryBackend
+      function onActionsChanged() {
+        board.display()
+      }
+    }
   }
 
   Rectangle {
     id: textPane
-    height: 20
+    height: 30
     color: "black"
     anchors.top: board.bottom
     anchors.left: board.left
     anchors.right: board.right
 
     Text {
-      property var moveCount: 0
       id: moveCountText
-      text: "Moves: " + moveCount
+      text: "Moves: " + SorryBackend.moveCount + "   Seed: " + SorryBackend.randomSeed
       color: "white"
-      anchors.bottom: parent.bottom
       anchors.horizontalCenter: parent.horizontalCenter
+      anchors.verticalCenter: parent.verticalCenter
+      font.pointSize: Math.min(parent.width * .05, parent.height * .5)
     }
   }
 
   Rectangle {
     id: cardPane
-    height: 64
+    height: 100
     anchors.top: textPane.bottom
     anchors.left: board.left
     anchors.right: board.right
@@ -287,138 +287,24 @@ Window {
   }
 
   Rectangle {
-    id: originalActionsPane
-    // anchors.right: parent.right
-    anchors.top: parent.top
-    anchors.bottom: parent.bottom
-    anchors.left: board.right
-    width: 360
-    color: "grey"
-
-    ListView {
-      anchors.fill: parent
-      spacing: 2
-      model: ListModel {
-        id: actionModel
-        // Method to sync actions from backend
-        function syncActions() {
-            clear();
-            var actions = SorryBackend.getActions();
-            for (var i = 0; i < actions.length; ++i) {
-              var action = actions[i]
-              append({action})
-            }
-            board.display()
-        }
-      }
-      delegate: Rectangle {
-          id: actionButton
-          width: 360
-          height: 50
-          color: "black"
-          border.color: "white"
-          radius: 8
-          Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            width: parent.width * modelData.score
-            color: "#00FF00"
-            opacity: .2
-            radius: parent.radius
-            border.color: "transparent"
-            border.width: parent.border.width
-          }
-          Text {
-            anchors.centerIn: parent
-            // text: index + ": " + modelData.name
-            text: modelData.name + ": " + modelData.score.toFixed(2)
-            font.pointSize: 16
-            color: "white"
-          }
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            property var cardIndex: 0
-
-            onClicked: {
-              // Clear cards
-              for (var i=0; i<5; ++i) {
-                var card = cardRepeater.itemAt(i)
-                card.highlightCount = 0
-              }
-              // Do action
-              SorryBackend.doAction(modelData)
-            }
-
-            onEntered: {
-              actionButton.color = "#404040"
-
-              // Draw a line from the moved piece's src to dest
-              var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(modelData)
-              if (srcAndDest.length >= 3) {
-                canvas.setFirstMove(srcAndDest[0], srcAndDest[1], srcAndDest[2])
-                if (srcAndDest.length >= 6) {
-                  canvas.setSecondMove(srcAndDest[3], srcAndDest[4], srcAndDest[5])
-                }
-                canvas.requestPaint()
-              }
-              
-              // *Draw a line from the second moved piece's src to dest
-              // Highlight the used card
-              var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
-              for (var i=0; i<cardIndices.length; ++i) {
-                var card = cardRepeater.itemAt(cardIndices[i])
-                card.highlightCount++
-              }
-            }
-
-            onExited: {
-              actionButton.color = "#000000"
-
-              canvas.resetMoves()
-              canvas.requestPaint()
-
-              var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
-              for (var i=0; i<cardIndices.length; ++i) {
-                var card = cardRepeater.itemAt(cardIndices[i])
-                card.highlightCount--
-              }
-            }
-          }
-      }
-      ScrollIndicator.vertical: ScrollIndicator { }
-
-      Component.onCompleted: actionModel.syncActions()
-
-      Connections {
-          target: SorryBackend
-          function onActionsChanged() {
-            actionModel.syncActions()
-          }
-      }
-    }
-  }
-
-  Rectangle {
     id: newActionsPane
     anchors.right: parent.right
     anchors.top: parent.top
     anchors.bottom: parent.bottom
-    anchors.left: originalActionsPane.right
+    anchors.left: board.right
     color: "#330000"
     ListView {
       id: actionListView
       anchors.fill: parent
-      spacing: 2
+      spacing: 3
       model: SorryBackend.actionListModel
       delegate: Rectangle {
           id: actionButton
           width: newActionsPane.width
-          height: 50
+          height: width * .1
           color: "black"
           border.color: "white"
-          radius: 8
+          radius: height * .2
           Rectangle {
             // Score "progress" bar
             anchors.left: parent.left
@@ -433,59 +319,55 @@ Window {
           }
           Text {
             anchors.centerIn: parent
-            text: model.name + ": " + model.score.toFixed(2)
-            font.pointSize: 16
+            text: model.name + ": " + model.score.toFixed(2) + " (" + model.averageMoves.toFixed(1) + ")"
+            font.pointSize: actionButton.height * .35
             color: "white"
           }
           MouseArea {
             anchors.fill: parent
             hoverEnabled: true
-            // property var cardIndex: 0
 
             onClicked: {
-              // // Clear card highlighting
-              // for (var i=0; i<5; ++i) {
-              //   var card = cardRepeater.itemAt(i)
-              //   card.highlightCount = 0
-              // }
+              // Clear card highlighting
+              for (var i=0; i<5; ++i) {
+                var card = cardRepeater.itemAt(i)
+                card.highlightCount = 0
+              }
               // Do action
-              console.log("Want to do action ", model.index)
               SorryBackend.doAction(model.index)
             }
 
             onEntered: {
               actionButton.color = "#404040"
 
-              // // Draw a line from the moved piece's src to dest
-              // var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(modelData)
-              // if (srcAndDest.length >= 3) {
-              //   canvas.setFirstMove(srcAndDest[0], srcAndDest[1], srcAndDest[2])
-              //   if (srcAndDest.length >= 6) {
-              //     canvas.setSecondMove(srcAndDest[3], srcAndDest[4], srcAndDest[5])
-              //   }
-              //   canvas.requestPaint()
-              // }
-              
-              // // *Draw a line from the second moved piece's src to dest
-              // // Highlight the used card
-              // var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
-              // for (var i=0; i<cardIndices.length; ++i) {
-              //   var card = cardRepeater.itemAt(cardIndices[i])
-              //   card.highlightCount++
-              // }
+              // Draw a line from the moved piece's src to dest
+              var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(model.index)
+              if (srcAndDest.length >= 3) {
+                canvas.setFirstMove(srcAndDest[0], srcAndDest[1], srcAndDest[2])
+                if (srcAndDest.length >= 6) {
+                  canvas.setSecondMove(srcAndDest[3], srcAndDest[4], srcAndDest[5])
+                }
+                canvas.requestPaint()
+              }
+
+              // Highlight the used card
+              var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
+              for (var i=0; i<cardIndices.length; ++i) {
+                var card = cardRepeater.itemAt(cardIndices[i])
+                card.highlightCount++
+              }
             }
 
             onExited: {
               actionButton.color = "#000000"
 
-              // canvas.resetMoves()
-              // canvas.requestPaint()
+              canvas.resetMoves()
 
-              // var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
-              // for (var i=0; i<cardIndices.length; ++i) {
-              //   var card = cardRepeater.itemAt(cardIndices[i])
-              //   card.highlightCount--
-              // }
+              var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
+              for (var i=0; i<cardIndices.length; ++i) {
+                var card = cardRepeater.itemAt(cardIndices[i])
+                card.highlightCount--
+              }
             }
           }
       }

@@ -1,6 +1,7 @@
 import QtQuick
 
 Rectangle {
+  id: card
   property var cardText: ""
   property int highlightCount: 0
   property string cardColor: (highlightCount == 0) ? "#FFFFFF" : "#FFFFA0"
@@ -20,7 +21,7 @@ Rectangle {
       anchors.top: parent.top
       anchors.topMargin: 5
       anchors.horizontalCenter: parent.horizontalCenter
-      font.pointSize: 22
+      font.pointSize: card.width * .2
     }
   }
 }
