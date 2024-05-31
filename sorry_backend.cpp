@@ -16,6 +16,8 @@ std::mt19937 createRandomEngine() {
 }
 
 SorryBackend::SorryBackend(QObject *parent) : QObject(parent), eng_(createRandomEngine()) {
+  connect(this, &SorryBackend::actionScoresChanged, &actionsList_, &ActionsList::setActionsAndScores);
+
   sorryState_.drawRandomStartingCards(eng_);
   calculateScores();
 }
@@ -37,18 +39,21 @@ void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
     auto actionsAndScores = mcts_.getActionsWithScores();
-    std::sort(actionsAndScores.begin(), actionsAndScores.end(), [](const auto &lhs, const auto &rhs){
-      return rhs.second < lhs.second;
-    });
+    emit actionScoresChanged(actionsAndScores);
+    // actionsList_.setActionsAndScores(actionsAndScores);
+    // emit actionListModelChanged();
+    // std::sort(actionsAndScores.begin(), actionsAndScores.end(), [](const auto &lhs, const auto &rhs){
+    //   return rhs.second < lhs.second;
+    // });
 
-    {
-      std::unique_lock<std::mutex> lock(actionsMutex_);
-      actions_.clear();
-      for (const auto &actionAndScore : actionsAndScores) {
-        actions_.push_back(new ActionForQml(actionAndScore.first, actionAndScore.second));
-      }
-    }
-    emit actionsChanged();
+    // {
+    //   std::unique_lock<std::mutex> lock(actionsMutex_);
+    //   actions_.clear();
+    //   for (const auto &actionAndScore : actionsAndScores) {
+    //     actions_.push_back(new ActionForQml(actionAndScore.first, actionAndScore.second));
+    //   }
+    // }
+    // emit actionsChanged();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 }
@@ -128,4 +133,72 @@ QVector<int> SorryBackend::getSrcAndDestPositionsForAction(const ActionForQml *q
     result.push_back(action.move2Destination);
   }
   return result;
+}
+
+// --------------------------------------------------------------------------------------------------------------
+
+ActionsList::ActionsList() {}
+
+int ActionsList::rowCount(const QModelIndex &parent) const {
+  int val = actions_.size() + 20;
+  if (parent.isValid()) {
+    val = 0;
+  }
+  std::cout << "getting row count " << actions_.size() << ", returning " << val << std::endl;
+  return val;
+}
+
+QVariant ActionsList::data(const QModelIndex &index, int role) const {
+  std::cout << "data at index " << index.row() << " for role " << role << ". Row count: " << rowCount() << std::endl;
+  if (!index.isValid()) {
+    return QVariant();
+  }
+  if (index.row() < 0 || index.row() >= rowCount()) {
+    return QVariant();
+  }
+
+  if (actions_.empty()) {
+    return QVariant();
+  }
+  
+  int rowIndex = index.row();
+  if (rowIndex >= actions_.size()) {
+    rowIndex = actions_.size()-1;
+  }
+  std::cout << "want action " << rowIndex << std::endl;
+  const ActionForQml* action = actions_.at(rowIndex);
+  if (role == NameRole) {
+    return QVariant(action->name());
+  } else if (role == ScoreRole) {
+    return QVariant(action->score());
+  }
+  return QVariant();
+}
+
+void ActionsList::setActionsAndScores(const std::vector<std::pair<sorry::Action, double>> &actionsAndScores) {
+  std::cout << "Given " << actionsAndScores.size() << " actions and scores" << std::endl;
+  for (const auto &actionAndScore : actionsAndScores) {
+    const sorry::Action &action = actionAndScore.first;
+    bool foundAction = false;
+    for (ActionForQml *actionForQml : actions_) {
+      if (actionForQml->getAction() == action) {
+        // Found our action, update the score
+        std::cout << "Updating score for action " << action.toString() << " to " << actionAndScore.second << std::endl;
+        actionForQml->updateScore(actionAndScore.second);
+        foundAction = true;
+        break;
+      }
+    }
+    if (foundAction) {
+      continue;
+    }
+    std::cout << "Did not find action " << action.toString() << ". Adding" << std::endl;
+    beginInsertRows(QModelIndex(), actionsAndScores.size(), actionsAndScores.size());
+    actions_.push_back(new ActionForQml(actionAndScore.first, actionAndScore.second));
+    endInsertRows();
+  }
+}
+
+ActionsList* SorryBackend::actionListModel() {
+  return &actionsList_;
 }

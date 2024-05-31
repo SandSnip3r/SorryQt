@@ -4,7 +4,7 @@ import Sorry
 
 Window {
   id: window
-  width: 1024
+  width: 1300
   height: 612
   visible: true
   title: qsTr("Sorry")
@@ -287,15 +287,17 @@ Window {
   }
 
   Rectangle {
-    anchors.right: parent.right
+    id: originalActionsPane
+    // anchors.right: parent.right
     anchors.top: parent.top
     anchors.bottom: parent.bottom
     anchors.left: board.right
+    width: 360
     color: "grey"
 
     ListView {
       anchors.fill: parent
-      spacing: 1
+      spacing: 2
       model: ListModel {
         id: actionModel
         // Method to sync actions from backend
@@ -312,9 +314,10 @@ Window {
       delegate: Rectangle {
           id: actionButton
           width: 360
-          height: 40
+          height: 50
           color: "black"
           border.color: "white"
+          radius: 8
           Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
@@ -393,6 +396,33 @@ Window {
           function onActionsChanged() {
             actionModel.syncActions()
           }
+      }
+    }
+  }
+
+  Rectangle {
+    id: newActionsPane
+    anchors.right: parent.right
+    anchors.top: parent.top
+    anchors.bottom: parent.bottom
+    anchors.left: originalActionsPane.right
+    color: "#330000"
+    ListView {
+      id: actionListView
+      anchors.fill: parent
+      spacing: 2
+      model: SorryBackend.actionListModel
+      delegate: Rectangle {
+        width: newActionsPane.width
+        height: 30
+        color: "#00BB00"
+        border.color: "#AA00EE"
+
+        Text {
+          color: "black"
+          text: model.name + ": " + model.score
+          font.pointSize: 12
+        }
       }
     }
   }
