@@ -45,12 +45,15 @@ class ActionsList : public QAbstractListModel {
 public:
   enum ActionRoles {
     NameRole = Qt::UserRole + 1,
-    ScoreRole = Qt::UserRole + 2
+    ScoreRole
   };
+  using ActionAndScore = std::pair<sorry::Action, double>;
   ActionsList();
   int rowCount(const QModelIndex &parent = QModelIndex()) const override;
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
-  void setActionsAndScores(const std::vector<std::pair<sorry::Action, double>> &actionsAndScores);
+  void setActionsAndScores(const std::vector<ActionAndScore> &actionsAndScores);
+  const sorry::Action& getAction(int index) const;
+  void reset();
 protected:
   QHash<int, QByteArray> roleNames() const override {
     QHash<int, QByteArray> roles;
@@ -59,7 +62,7 @@ protected:
     return roles;
   }
 private:
-  QVector<ActionForQml*> actions_;
+  QVector<ActionAndScore> actions_;
 };
 
 class SorryBackend : public QObject {
@@ -70,10 +73,11 @@ class SorryBackend : public QObject {
   Q_PROPERTY(ActionsList* actionListModel READ actionListModel NOTIFY actionListModelChanged)
 public:
   explicit SorryBackend(QObject *parent = nullptr);
+  ~SorryBackend();
   Q_INVOKABLE void test();
   QStringList dataList() { return m_dataList; }
   Q_INVOKABLE QVector<ActionForQml*> getActions();
-  Q_INVOKABLE void doAction(const ActionForQml *action);
+  Q_INVOKABLE void doAction(int index);
   Q_INVOKABLE QVector<int> getPiecePositions() const;
   Q_INVOKABLE QVector<QString> getCardStrings() const;
   Q_INVOKABLE int getMoveCount() const;
@@ -103,6 +107,7 @@ private:
 
   void calculateScores();
   void probeActions();
+  void terminateThreads();
 };
 
 #endif // SORRY_BACKEND_H

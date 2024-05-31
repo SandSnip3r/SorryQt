@@ -413,16 +413,81 @@ Window {
       spacing: 2
       model: SorryBackend.actionListModel
       delegate: Rectangle {
-        width: newActionsPane.width
-        height: 30
-        color: "#00BB00"
-        border.color: "#AA00EE"
-
-        Text {
+          id: actionButton
+          width: newActionsPane.width
+          height: 50
           color: "black"
-          text: model.name + ": " + model.score
-          font.pointSize: 12
-        }
+          border.color: "white"
+          radius: 8
+          Rectangle {
+            // Score "progress" bar
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: parent.width * model.score
+            color: "#00FF00"
+            opacity: .2
+            radius: parent.radius
+            border.color: "transparent"
+            border.width: parent.border.width
+          }
+          Text {
+            anchors.centerIn: parent
+            text: model.name + ": " + model.score.toFixed(2)
+            font.pointSize: 16
+            color: "white"
+          }
+          MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            // property var cardIndex: 0
+
+            onClicked: {
+              // // Clear card highlighting
+              // for (var i=0; i<5; ++i) {
+              //   var card = cardRepeater.itemAt(i)
+              //   card.highlightCount = 0
+              // }
+              // Do action
+              console.log("Want to do action ", model.index)
+              SorryBackend.doAction(model.index)
+            }
+
+            onEntered: {
+              actionButton.color = "#404040"
+
+              // // Draw a line from the moved piece's src to dest
+              // var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(modelData)
+              // if (srcAndDest.length >= 3) {
+              //   canvas.setFirstMove(srcAndDest[0], srcAndDest[1], srcAndDest[2])
+              //   if (srcAndDest.length >= 6) {
+              //     canvas.setSecondMove(srcAndDest[3], srcAndDest[4], srcAndDest[5])
+              //   }
+              //   canvas.requestPaint()
+              // }
+              
+              // // *Draw a line from the second moved piece's src to dest
+              // // Highlight the used card
+              // var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
+              // for (var i=0; i<cardIndices.length; ++i) {
+              //   var card = cardRepeater.itemAt(cardIndices[i])
+              //   card.highlightCount++
+              // }
+            }
+
+            onExited: {
+              actionButton.color = "#000000"
+
+              // canvas.resetMoves()
+              // canvas.requestPaint()
+
+              // var cardIndices = SorryBackend.getCardIndicesForAction(modelData)
+              // for (var i=0; i<cardIndices.length; ++i) {
+              //   var card = cardRepeater.itemAt(cardIndices[i])
+              //   card.highlightCount--
+              // }
+            }
+          }
       }
     }
   }

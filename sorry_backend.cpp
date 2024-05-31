@@ -17,9 +17,12 @@ std::mt19937 createRandomEngine() {
 
 SorryBackend::SorryBackend(QObject *parent) : QObject(parent), eng_(createRandomEngine()) {
   connect(this, &SorryBackend::actionScoresChanged, &actionsList_, &ActionsList::setActionsAndScores);
-
   sorryState_.drawRandomStartingCards(eng_);
   calculateScores();
+}
+
+SorryBackend::~SorryBackend() {
+  terminateThreads();
 }
 
 void SorryBackend::test() {
@@ -40,21 +43,7 @@ void SorryBackend::probeActions() {
   while (runProber_) {
     auto actionsAndScores = mcts_.getActionsWithScores();
     emit actionScoresChanged(actionsAndScores);
-    // actionsList_.setActionsAndScores(actionsAndScores);
-    // emit actionListModelChanged();
-    // std::sort(actionsAndScores.begin(), actionsAndScores.end(), [](const auto &lhs, const auto &rhs){
-    //   return rhs.second < lhs.second;
-    // });
-
-    // {
-    //   std::unique_lock<std::mutex> lock(actionsMutex_);
-    //   actions_.clear();
-    //   for (const auto &actionAndScore : actionsAndScores) {
-    //     actions_.push_back(new ActionForQml(actionAndScore.first, actionAndScore.second));
-    //   }
-    // }
-    // emit actionsChanged();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
 
@@ -66,16 +55,23 @@ void SorryBackend::calculateScores() {
   actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
 }
 
-void SorryBackend::doAction(const ActionForQml *action) {
+void SorryBackend::terminateThreads() {
   // Terminate prober
   runProber_ = false;
   actionProberThread_.join();
   // Terminate mcts
   mctsTerminator_.setDone(true);
   mctsThread_.join();
+}
+
+void SorryBackend::doAction(int index) {
+  terminateThreads();
   // Do action
-  std::cout << "Doing action " << action->getAction().toString() << std::endl;
-  sorryState_.doAction(action->getAction(), eng_);
+  const auto &action = actionsList_.getAction(index);
+  std::cout << "Doing action " << action.toString() << std::endl;
+  sorryState_.doAction(action, eng_);
+  emit actionsChanged();
+  // Restart prober
   calculateScores();
 }
 
@@ -135,21 +131,24 @@ QVector<int> SorryBackend::getSrcAndDestPositionsForAction(const ActionForQml *q
   return result;
 }
 
+ActionsList* SorryBackend::actionListModel() {
+  return &actionsList_;
+}
+
 // --------------------------------------------------------------------------------------------------------------
 
 ActionsList::ActionsList() {}
 
 int ActionsList::rowCount(const QModelIndex &parent) const {
-  int val = actions_.size() + 20;
   if (parent.isValid()) {
-    val = 0;
+    std::cout << "Parent is valid" << std::endl;
   }
-  std::cout << "getting row count " << actions_.size() << ", returning " << val << std::endl;
-  return val;
+  // std::cout << "Returning row count " << actions_.size() << std::endl;
+  return actions_.size();
 }
 
 QVariant ActionsList::data(const QModelIndex &index, int role) const {
-  std::cout << "data at index " << index.row() << " for role " << role << ". Row count: " << rowCount() << std::endl;
+  // std::cout << "data() index: " << index.row() << ", role: " << role << std::endl;
   if (!index.isValid()) {
     return QVariant();
   }
@@ -161,30 +160,29 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
     return QVariant();
   }
   
-  int rowIndex = index.row();
-  if (rowIndex >= actions_.size()) {
-    rowIndex = actions_.size()-1;
-  }
-  std::cout << "want action " << rowIndex << std::endl;
-  const ActionForQml* action = actions_.at(rowIndex);
+  const ActionAndScore &actionAndScore = actions_.at(index.row());
   if (role == NameRole) {
-    return QVariant(action->name());
+    const sorry::Action &action = actionAndScore.first;
+    return QVariant(QString::fromStdString(action.toString()));
   } else if (role == ScoreRole) {
-    return QVariant(action->score());
+    return QVariant(actionAndScore.second);
   }
   return QVariant();
 }
 
-void ActionsList::setActionsAndScores(const std::vector<std::pair<sorry::Action, double>> &actionsAndScores) {
-  std::cout << "Given " << actionsAndScores.size() << " actions and scores" << std::endl;
-  for (const auto &actionAndScore : actionsAndScores) {
-    const sorry::Action &action = actionAndScore.first;
+void ActionsList::setActionsAndScores(const std::vector<ActionAndScore> &actionsAndScores) {
+  std::vector<bool> actionSeen(actions_.size(), false);
+  // beginResetModel();
+  for (const auto &givenActionAndScore : actionsAndScores) {
+    const sorry::Action &givenAction = givenActionAndScore.first;
     bool foundAction = false;
-    for (ActionForQml *actionForQml : actions_) {
-      if (actionForQml->getAction() == action) {
+    for (int i=0; i<actions_.size(); ++i) {
+      ActionAndScore &actionAndScore = actions_[i];
+      if (actionAndScore.first == givenAction) {
         // Found our action, update the score
-        std::cout << "Updating score for action " << action.toString() << " to " << actionAndScore.second << std::endl;
-        actionForQml->updateScore(actionAndScore.second);
+        actionAndScore.second = givenActionAndScore.second;
+        emit dataChanged(this->index(i), this->index(i), {ScoreRole});
+        actionSeen[i] = true;
         foundAction = true;
         break;
       }
@@ -192,13 +190,21 @@ void ActionsList::setActionsAndScores(const std::vector<std::pair<sorry::Action,
     if (foundAction) {
       continue;
     }
-    std::cout << "Did not find action " << action.toString() << ". Adding" << std::endl;
-    beginInsertRows(QModelIndex(), actionsAndScores.size(), actionsAndScores.size());
-    actions_.push_back(new ActionForQml(actionAndScore.first, actionAndScore.second));
+    beginInsertRows(QModelIndex(), actions_.size(), actions_.size());
+    actions_.push_back(givenActionAndScore);
     endInsertRows();
   }
+  for (int i=actionSeen.size()-1; i>=0; --i) {
+    if (!actionSeen[i]) {
+      std::cout << "Did not see " << i << std::endl;
+      beginRemoveRows(QModelIndex(), i, i);
+      actions_.remove(i);
+      endRemoveRows();
+    }
+  }
+  // endResetModel();
 }
 
-ActionsList* SorryBackend::actionListModel() {
-  return &actionsList_;
+const sorry::Action& ActionsList::getAction(int index) const {
+  return actions_.at(index).first;
 }
