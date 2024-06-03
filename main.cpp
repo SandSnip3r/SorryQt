@@ -17,20 +17,13 @@ int main(int argc, char *argv[]) {
   engine.load(url);
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-  auto *sorry = engine.singletonInstance<SorryBackend*>("Sorry","SorryBackend");
+  SorryBackend *sorryBackend = engine.singletonInstance<SorryBackend*>("Sorry","SorryBackend");
 #else
-  // Register the singleton type
-  qmlRegisterSingletonType<SorryBackend>("Sorry", 1, 0, "SorryBackend", [](QQmlEngine *engine, QJSEngine *scriptEngine) -> QObject* {
-      Q_UNUSED(engine)
-      Q_UNUSED(scriptEngine)
-      return new SorryBackend();
-  });
-
   // Get the type ID
   int sorryBackendTypeId = qMetaTypeId<SorryBackend*>();
 
   // Obtain the singleton instance
-  auto *sorry = engine.singletonInstance<SorryBackend*>(sorryBackendTypeId);
+  SorryBackend *sorryBackend = engine.singletonInstance<SorryBackend*>(sorryBackendTypeId);
 #endif
 
   return app.exec();
