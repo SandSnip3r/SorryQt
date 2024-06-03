@@ -17,9 +17,5 @@ int main(int argc, char *argv[]) {
   engine.load(url);
 
   auto *sorry = engine.singletonInstance<SorryBackend*>("Sorry","SorryBackend");
-  
-  // TODO: Initialize sorry state, temporarily.
-  sorry->test();
-
   return app.exec();
 }

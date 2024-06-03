@@ -53,7 +53,6 @@ public:
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
   void setActionsAndScores(const std::vector<ActionScore> &actionsAndScores);
   std::optional<sorry::Action> getAction(int index) const;
-  void reset();
 protected:
   QHash<int, QByteArray> roleNames() const override {
     QHash<int, QByteArray> roles;
@@ -63,22 +62,22 @@ protected:
     return roles;
   }
 private:
-  QVector<ActionScore> actions_;
+  std::vector<ActionScore> actions_;
+  mutable std::recursive_mutex mutex_;
 };
 
 class SorryBackend : public QObject {
   Q_OBJECT
   QML_ELEMENT
   QML_SINGLETON
-  Q_PROPERTY(QStringList dataList READ dataList NOTIFY dataListChanged)
   Q_PROPERTY(ActionsList* actionListModel READ actionListModel NOTIFY actionListModelChanged)
-  Q_PROPERTY(int randomSeed READ randomSeed CONSTANT)
+  Q_PROPERTY(int randomSeed READ randomSeed NOTIFY randomSeedChanged)
   Q_PROPERTY(int moveCount READ moveCount NOTIFY moveCountChanged)
+  Q_PROPERTY(int iterationCount READ iterationCount NOTIFY iterationCountChanged)
 public:
   explicit SorryBackend(QObject *parent = nullptr);
   ~SorryBackend();
-  Q_INVOKABLE void test();
-  QStringList dataList() { return m_dataList; }
+  Q_INVOKABLE void resetGame();
   int randomSeed() const { return randomSeed_; }
   int moveCount() const { return sorryState_.getTotalActionCount(); }
   Q_INVOKABLE QVector<ActionForQml*> getActions();
@@ -88,12 +87,14 @@ public:
   Q_INVOKABLE QVector<int> getCardIndicesForAction(int index) const;
   Q_INVOKABLE QVector<int> getSrcAndDestPositionsForAction(int index) const;
   ActionsList* actionListModel();
+  int iterationCount() const;
 
 signals:
-  void dataListChanged();
-  void actionsChanged();
+  void boardStateChanged();
   void actionListModelChanged();
   void actionScoresChanged(std::vector<ActionScore> actionScores);
+  void iterationCountChanged();
+  void randomSeedChanged();
   void moveCountChanged();
 
 private:
@@ -108,9 +109,9 @@ private:
   sorry::Sorry sorryState_;
   std::mutex actionsMutex_;
   QVector<ActionForQml*> actions_;
-  QStringList m_dataList;
   ActionsList actionsList_;
 
+  void initializeGame();
   void calculateScores();
   void probeActions();
   void terminateThreads();

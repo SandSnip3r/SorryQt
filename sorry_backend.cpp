@@ -16,29 +16,36 @@ std::mt19937 createRandomEngine() {
 }
 
 SorryBackend::SorryBackend(QObject *parent) : QObject(parent) {
-  // randomSeed_ = -1701881796;
-  randomSeed_ = std::random_device()();
-  eng_ = std::mt19937(randomSeed_);
   connect(this, &SorryBackend::actionScoresChanged, &actionsList_, &ActionsList::setActionsAndScores);
-  sorryState_.drawRandomStartingCards(eng_);
-  calculateScores();
+  initializeGame();
 }
 
 SorryBackend::~SorryBackend() {
   terminateThreads();
 }
 
-void SorryBackend::test() {
-  std::cout << "test" << std::endl;
-  static int i=0;
-  m_dataList << "hey" + QString::number(i++);
-  std::cout << m_dataList.size() << std::endl;
-  emit dataListChanged();
+void SorryBackend::initializeGame() {
+  randomSeed_ = std::random_device()();
+  emit randomSeedChanged();
+  eng_ = std::mt19937(randomSeed_);
+  sorryState_ = sorry::Sorry();
+  sorryState_.drawRandomStartingCards(eng_);
+  emit boardStateChanged();
+  calculateScores();
+}
+
+void SorryBackend::resetGame() {
+  terminateThreads();
+  initializeGame();
 }
 
 QVector<ActionForQml*> SorryBackend::getActions() {
-  std::unique_lock<std::mutex> lock(actionsMutex_);
+  std::unique_lock lock(actionsMutex_);
   return actions_;
+}
+
+int SorryBackend::iterationCount() const {
+  return mcts_.getIterationCount();
 }
 
 void SorryBackend::probeActions() {
@@ -46,6 +53,7 @@ void SorryBackend::probeActions() {
   while (runProber_) {
     auto actionsAndScores = mcts_.getActionScores();
     emit actionScoresChanged(actionsAndScores);
+    emit iterationCountChanged();
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 }
@@ -78,7 +86,7 @@ void SorryBackend::doAction(int index) {
   std::cout << "Doing action " << action->toString() << std::endl;
   sorryState_.doAction(*action, eng_);
   emit moveCountChanged();
-  emit actionsChanged();
+  emit boardStateChanged();
   // Restart prober
   calculateScores();
 }
@@ -152,6 +160,7 @@ int ActionsList::rowCount(const QModelIndex &parent) const {
   if (parent.isValid()) {
     std::cout << "Parent is valid" << std::endl;
   }
+  std::unique_lock lock(mutex_);
   // std::cout << "Returning row count " << actions_.size() << std::endl;
   return actions_.size();
 }
@@ -161,7 +170,8 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
   if (!index.isValid()) {
     return QVariant();
   }
-  if (index.row() < 0 || index.row() >= rowCount()) {
+  std::unique_lock lock(mutex_);
+  if (index.row() < 0 || index.row() >= actions_.size()) {
     return QVariant();
   }
 
@@ -172,6 +182,9 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
   const ActionScore &actionScore = actions_.at(index.row());
   if (role == NameRole) {
     const sorry::Action &action = actionScore.action;
+    if (action.actionType == sorry::Action::ActionType::kDiscard) {
+      return tr("Discard %1").arg(QString::fromStdString(sorry::toString(action.card)));
+    }
     return QVariant(QString::fromStdString(action.toString()));
   } else if (role == ScoreRole) {
     return QVariant(actionScore.score);
@@ -182,13 +195,14 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
 }
 
 void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAndScores) {
+  std::unique_lock lock(mutex_);
   std::vector<bool> actionSeen(actions_.size(), false);
   // beginResetModel();
   for (const auto &givenActionScore : actionsAndScores) {
     const sorry::Action &givenAction = givenActionScore.action;
     bool foundAction = false;
     for (int i=0; i<actions_.size(); ++i) {
-      ActionScore &actionScore = actions_[i];
+      ActionScore &actionScore = actions_.at(i);
       if (actionScore.action == givenAction) {
         // Found our action, update the score
         actionScore.score = givenActionScore.score;
@@ -202,6 +216,7 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
     if (foundAction) {
       continue;
     }
+    // New action not yet in our list.
     beginInsertRows(QModelIndex(), actions_.size(), actions_.size());
     actions_.push_back(givenActionScore);
     endInsertRows();
@@ -209,7 +224,7 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
   for (int i=actionSeen.size()-1; i>=0; --i) {
     if (!actionSeen[i]) {
       beginRemoveRows(QModelIndex(), i, i);
-      actions_.remove(i);
+      actions_.erase(actions_.begin() + i);
       endRemoveRows();
     }
   }
@@ -217,6 +232,7 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
 }
 
 std::optional<sorry::Action> ActionsList::getAction(int index) const {
+  std::unique_lock lock(mutex_);
   if (index < 0 || index >= actions_.size()) {
     return {};
   }

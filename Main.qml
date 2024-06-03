@@ -155,13 +155,7 @@ Window {
       id: canvas
       anchors.fill: parent
 
-      property int index1: -1
-      property int srcPos1: -1
-      property int destPos1: -1
-
-      property int index2: -1
-      property int srcPos2: -1
-      property int destPos2: -1
+      property var moves: []
 
       // Code to draw a simple arrow on TypeScript canvas got from https://stackoverflow.com/a/64756256/867349
       function arrow(context, fromx, fromy, tox, toy) {
@@ -182,25 +176,13 @@ Window {
         context.stroke();
       }
 
-      function setFirstMove(index, srcPosIndex, destPosIndex) {
-        canvas.index1 = index
-        canvas.srcPos1 = srcPosIndex
-        canvas.destPos1 = destPosIndex
+      function pushMove(move) {
+        moves.push(move)
+        canvas.requestPaint()
       }
 
-      function setSecondMove(index, srcPosIndex, destPosIndex) {
-        canvas.index2 = index
-        canvas.srcPos2 = srcPosIndex
-        canvas.destPos2 = destPosIndex
-      }
-
-      function resetMoves() {
-        canvas.index1 = -1
-        canvas.srcPos1 = -1
-        canvas.destPos1 = -1
-        canvas.index2 = -1
-        canvas.srcPos2 = -1
-        canvas.destPos2 = -1
+      function popMove() {
+        moves.shift()
         canvas.requestPaint()
       }
 
@@ -209,32 +191,40 @@ Window {
         var ctx = getContext("2d");
         ctx.clearRect(0, 0, width, height);
 
+        // Make a slight adjustment so that the arrow starts/ends at the center of the piece's position
         var adjust = board.basePieceSize * board.height / 2
-        if (index1 >= 0 && srcPos1 >= 0 && destPos1 >= 0) {
-          var src = board.getPos(index1, srcPos1)
-          var dest = board.getPos(index1, destPos1)
-          arrow(ctx, src[0]+adjust, src[1]+adjust, dest[0]+adjust, dest[1]+adjust)
-        }
-        if (index2 >= 0 && srcPos2 >= 0 && destPos2 >= 0) {
-          var src = board.getPos(index2, srcPos2)
-          var dest = board.getPos(index2, destPos2)
-          arrow(ctx, src[0]+adjust, src[1]+adjust, dest[0]+adjust, dest[1]+adjust)
+
+        for (const move of moves) {
+          var src0 = board.getPos(move.pieceIndex0, move.moveSourcePos0)
+          var dest0 = board.getPos(move.pieceIndex0, move.moveDestinationPos0)
+          arrow(ctx, src0[0]+adjust, src0[1]+adjust, dest0[0]+adjust, dest0[1]+adjust)
+          if ("pieceIndex1" in move) {
+            var src1 = board.getPos(move.pieceIndex1, move.moveSourcePos1)
+            var dest1 = board.getPos(move.pieceIndex1, move.moveDestinationPos1)
+            arrow(ctx, src1[0]+adjust, src1[1]+adjust, dest1[0]+adjust, dest1[1]+adjust)
+          }
         }
       }
 
-      MouseArea {
-        id: ma
-        anchors.fill: parent
-        hoverEnabled: true
-        // Do a paint requests on each mouse position change (X and Y separately)
-        onMouseXChanged: canvas.requestPaint()
-        onMouseYChanged: canvas.requestPaint()
+      Button {
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width * 0.15
+        height: parent.height * 0.04
+        Text {
+          text: "Reset Game"
+          font.pointSize: parent.height * .5
+          anchors.centerIn: parent
+        }
+        onClicked: {
+          SorryBackend.resetGame()
+        }
       }
     }
 
     Connections {
       target: SorryBackend
-      function onActionsChanged() {
+      function onBoardStateChanged() {
         board.display()
       }
     }
@@ -250,7 +240,7 @@ Window {
 
     Text {
       id: moveCountText
-      text: "Moves: " + SorryBackend.moveCount + "   Seed: " + SorryBackend.randomSeed
+      text: "Moves: " + SorryBackend.moveCount + "   Seed: " + SorryBackend.randomSeed + "   Iterations: " + SorryBackend.iterationCount
       color: "white"
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
@@ -319,7 +309,7 @@ Window {
           }
           Text {
             anchors.centerIn: parent
-            text: model.name + ": " + model.score.toFixed(2) + " (" + model.averageMoves.toFixed(1) + ")"
+            text: model.name + " (" + model.averageMoves.toFixed(1) + " moves)"
             font.pointSize: actionButton.height * .35
             color: "white"
           }
@@ -340,14 +330,19 @@ Window {
             onEntered: {
               actionButton.color = "#404040"
 
-              // Draw a line from the moved piece's src to dest
+              // Draw a line from the moved piece's src to dest (and for the second piece too, if this is a double move)
               var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(model.index)
               if (srcAndDest.length >= 3) {
-                canvas.setFirstMove(srcAndDest[0], srcAndDest[1], srcAndDest[2])
+                var canvasMove = {}
+                canvasMove.pieceIndex0 = srcAndDest[0]
+                canvasMove.moveSourcePos0 = srcAndDest[1]
+                canvasMove.moveDestinationPos0 = srcAndDest[2]
                 if (srcAndDest.length >= 6) {
-                  canvas.setSecondMove(srcAndDest[3], srcAndDest[4], srcAndDest[5])
+                  canvasMove.pieceIndex1 = srcAndDest[3]
+                  canvasMove.moveSourcePos1 = srcAndDest[4]
+                  canvasMove.moveDestinationPos1 = srcAndDest[5]
                 }
-                canvas.requestPaint()
+                canvas.pushMove(canvasMove)
               }
 
               // Highlight the used card
@@ -361,7 +356,7 @@ Window {
             onExited: {
               actionButton.color = "#000000"
 
-              canvas.resetMoves()
+              canvas.popMove()
 
               var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
               for (var i=0; i<cardIndices.length; ++i) {
