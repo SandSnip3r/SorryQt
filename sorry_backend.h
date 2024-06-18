@@ -6,13 +6,65 @@
 
 #include <QAbstractItemModel>
 #include <QAbstractListModel>
+#include <QList>
 #include <QObject>
 #include <QQmlEngine>
 #include <QVector>
 
+#include <map>
 #include <random>
 #include <thread>
 #include <vector>
+
+class PlayerType : public QObject {
+  Q_OBJECT
+  QML_ELEMENT
+public:
+  explicit PlayerType() = default;
+  enum PlayerTypeEnum {
+    Human,
+    Mcts,
+    MctsAssistedHuman
+  };
+  Q_ENUM(PlayerTypeEnum);
+};
+
+class PlayerColor : public QObject {
+  Q_OBJECT
+  QML_ELEMENT
+public:
+  explicit PlayerColor() = default;
+  enum PlayerColorEnum {
+    Green,
+    Red,
+    Blue,
+    Yellow,
+    GameOver
+  };
+  Q_ENUM(PlayerColorEnum);
+};
+
+class MoveForArrow : public QObject {
+  Q_OBJECT
+  QML_ELEMENT
+  Q_PROPERTY(PlayerColor::PlayerColorEnum playerColor READ playerColor CONSTANT)
+  Q_PROPERTY(int pieceIndex READ pieceIndex CONSTANT)
+  Q_PROPERTY(int srcPosition READ srcPosition CONSTANT)
+  Q_PROPERTY(int destPosition READ destPosition CONSTANT)
+public:
+  MoveForArrow(PlayerColor::PlayerColorEnum playerColor, int pieceIndex, int srcPosition, int destPosition) :
+      playerColor_(playerColor), pieceIndex_(pieceIndex), srcPosition_(srcPosition), destPosition_(destPosition) {}
+  ~MoveForArrow() {}
+  PlayerColor::PlayerColorEnum playerColor() const { return playerColor_; };
+  int pieceIndex() const { return pieceIndex_; };
+  int srcPosition() const { return srcPosition_; };
+  int destPosition() const { return destPosition_; };
+private:
+  const PlayerColor::PlayerColorEnum playerColor_;
+  const int pieceIndex_;
+  const int srcPosition_;
+  const int destPosition_;
+};
 
 class ActionForQml : public QObject {
   Q_OBJECT
@@ -46,7 +98,7 @@ public:
   enum ActionRoles {
     NameRole = Qt::UserRole + 1,
     ScoreRole,
-    AverageMovesRole
+    IsBestRole
   };
   ActionsList();
   int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -58,12 +110,13 @@ protected:
     QHash<int, QByteArray> roles;
     roles[NameRole] = "name";
     roles[ScoreRole] = "score";
-    roles[AverageMovesRole] = "averageMoves";
+    roles[IsBestRole] = "isBest";
     return roles;
   }
 private:
-  std::vector<ActionScore> actions_;
+  std::vector<ActionScore> actionScores_;
   mutable std::recursive_mutex mutex_;
+  size_t bestIndex_{0};
 };
 
 class SorryBackend : public QObject {
@@ -74,18 +127,24 @@ class SorryBackend : public QObject {
   Q_PROPERTY(int randomSeed READ randomSeed NOTIFY randomSeedChanged)
   Q_PROPERTY(int moveCount READ moveCount NOTIFY moveCountChanged)
   Q_PROPERTY(int iterationCount READ iterationCount NOTIFY iterationCountChanged)
+  Q_PROPERTY(PlayerColor::PlayerColorEnum playerTurn READ playerTurn NOTIFY playerTurnChanged)
+  Q_PROPERTY(PlayerType::PlayerTypeEnum playerType READ playerType NOTIFY playerTurnChanged)
 public:
   explicit SorryBackend(QObject *parent = nullptr);
   ~SorryBackend();
+
   Q_INVOKABLE void resetGame();
   int randomSeed() const { return randomSeed_; }
-  int moveCount() const { return sorryState_.getTotalActionCount(); }
-  Q_INVOKABLE QVector<ActionForQml*> getActions();
-  Q_INVOKABLE void doAction(int index);
-  Q_INVOKABLE QVector<int> getPiecePositions() const;
-  Q_INVOKABLE QVector<QString> getCardStrings() const;
-  Q_INVOKABLE QVector<int> getCardIndicesForAction(int index) const;
-  Q_INVOKABLE QVector<int> getSrcAndDestPositionsForAction(int index) const;
+  int moveCount() const { return 0; /* sorryState_.getTotalActionCount(); */ }
+  PlayerColor::PlayerColorEnum playerTurn() const;
+  PlayerType::PlayerTypeEnum playerType() const;
+  Q_INVOKABLE void doActionFromActionList(int index);
+  Q_INVOKABLE QList<PlayerColor::PlayerColorEnum> getPlayers() const;
+  Q_INVOKABLE QList<int> getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum playerColor) const;
+  Q_INVOKABLE QList<QString> getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const;
+  Q_INVOKABLE PlayerColor::PlayerColorEnum getPlayerForAction(int index) const;
+  Q_INVOKABLE QList<int> getCardIndicesForAction(int index) const;
+  Q_INVOKABLE QList<MoveForArrow*> getMovesForAction(int index) const;
   ActionsList* actionListModel();
   int iterationCount() const;
 
@@ -93,12 +152,17 @@ signals:
   void boardStateChanged();
   void actionListModelChanged();
   void actionScoresChanged(std::vector<ActionScore> actionScores);
+  void winRatesChanged(std::vector<double> winRates);
   void iterationCountChanged();
   void randomSeedChanged();
   void moveCountChanged();
+  void playerTurnChanged();
+  void actionChosen(sorry::Action action);
 
 private:
-  SorryMcts mcts_{20};
+  static constexpr bool kHumanIsMctsAssisted{false};
+  std::map<sorry::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
+  SorryMcts mcts_{2};
   ExplicitTerminator mctsTerminator_;
   std::thread actionProberThread_;
   std::atomic<bool> runProber_;
@@ -106,15 +170,24 @@ private:
   std::thread mctsThread_;
   int randomSeed_;
   std::mt19937 eng_;
-  sorry::Sorry sorryState_;
+  sorry::Sorry sorryState_{sorry::PlayerColor::kGreen};
   std::mutex actionsMutex_;
   QVector<ActionForQml*> actions_;
   ActionsList actionsList_;
+  int lastIterationCount_{0};
 
+  void updateAi();
+  void initializeActions();
   void initializeGame();
-  void calculateScores();
+  void runMctsAssistant();
   void probeActions();
   void terminateThreads();
+  void runMctsAgent();
+  void doActionAsAgent(const sorry::Action &action);
+  void doAction(const sorry::Action &action);
+
+  static PlayerColor::PlayerColorEnum sorryEnumToBackendEnum(sorry::PlayerColor playerColor);
+  static sorry::PlayerColor backendEnumToSorryEnum(PlayerColor::PlayerColorEnum playerColor);
 };
 
 #endif // SORRY_BACKEND_H

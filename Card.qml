@@ -4,7 +4,7 @@ Rectangle {
   id: card
   property var cardText: ""
   property int highlightCount: 0
-  property string cardColor: (highlightCount == 0) ? "#FFFFFF" : "#FFFFA0"
+  property string cardColor: (highlightCount == 0) ? "#FFFFFF" : "#FFA0FF"
   radius: width/10
   color: cardColor
   Rectangle {
@@ -19,8 +19,9 @@ Rectangle {
     Text {
       text: cardText
       anchors.top: parent.top
-      anchors.topMargin: 5
-      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.topMargin: card.width * .02
+      anchors.left: parent.left
+      anchors.leftMargin: card.width * .08
       font.pointSize: card.width * .2
     }
   }

@@ -7,10 +7,14 @@ Rectangle {
 
   property real cellSize: board.height / 16.0
   property real homeSize: cellSize*2.2
-  readonly property string greenColor: "#44CC44"
-  readonly property string redColor: "#EE3333"
-  readonly property string blueColor: "#4444EE"
-  readonly property string yellowColor: "#EEEE22"
+  readonly property string greenPrimaryColor:    "#44CC44"
+  readonly property string greenSecondaryColor:  "#88FF88"
+  readonly property string redPrimaryColor:      "#EE3333"
+  readonly property string redSecondaryColor:    "#FF8888"
+  readonly property string bluePrimaryColor:     "#4444EE"
+  readonly property string blueSecondaryColor:   "#8888FF"
+  readonly property string yellowPrimaryColor:   "#EEEE22"
+  readonly property string yellowSecondaryColor: "#AAAA22"
 
   Row {
     id: topRow
@@ -84,7 +88,7 @@ Rectangle {
     y: board.height - board.cellSize - height
     radius: width/2
     border.color: "black"
-    color: board.greenColor
+    color: board.greenPrimaryColor
   }
 
   Column {
@@ -96,7 +100,7 @@ Rectangle {
       Rectangle {
         width: board.cellSize
         height: board.cellSize
-        color: board.greenColor
+        color: board.greenPrimaryColor
         border.color: "black"
       }
     }
@@ -108,7 +112,7 @@ Rectangle {
     height: width
     radius: width/2
     border.color: "black"
-    color: board.greenColor
+    color: board.greenPrimaryColor
     anchors.bottom: greenSafetyZone.top
     anchors.bottomMargin: -board.cellSize/10
     anchors.horizontalCenter: greenSafetyZone.horizontalCenter
@@ -124,7 +128,7 @@ Rectangle {
     y: 4.5*board.cellSize - height/2
     radius: width/2
     border.color: "black"
-    color: board.yellowColor
+    color: board.yellowPrimaryColor
   }
 
   Row {
@@ -136,7 +140,7 @@ Rectangle {
       Rectangle {
         width: board.cellSize
         height: board.cellSize
-        color: board.yellowColor
+        color: board.yellowPrimaryColor
         border.color: "black"
       }
     }
@@ -148,7 +152,7 @@ Rectangle {
     height: width
     radius: width/2
     border.color: "black"
-    color: board.yellowColor
+    color: board.yellowPrimaryColor
     anchors.right: yellowSafetyZone.left
     anchors.rightMargin: -board.cellSize/10
     anchors.verticalCenter: yellowSafetyZone.verticalCenter
@@ -164,7 +168,7 @@ Rectangle {
     y: board.cellSize
     radius: width/2
     border.color: "black"
-    color: board.blueColor
+    color: board.bluePrimaryColor
   }
 
   Column {
@@ -176,7 +180,7 @@ Rectangle {
       Rectangle {
         width: board.cellSize
         height: board.cellSize
-        color: board.blueColor
+        color: board.bluePrimaryColor
         border.color: "black"
       }
     }
@@ -188,7 +192,7 @@ Rectangle {
     height: width
     radius: width/2
     border.color: "black"
-    color: board.blueColor
+    color: board.bluePrimaryColor
     anchors.top: blueSafetyZone.bottom
     anchors.topMargin: -board.cellSize/10
     anchors.horizontalCenter: blueSafetyZone.horizontalCenter
@@ -204,7 +208,7 @@ Rectangle {
     y: 11.5*board.cellSize - height/2
     radius: width/2
     border.color: "black"
-    color: board.redColor
+    color: board.redPrimaryColor
   }
 
   Row {
@@ -216,7 +220,7 @@ Rectangle {
       Rectangle {
         width: board.cellSize
         height: board.cellSize
-        color: board.redColor
+        color: board.redPrimaryColor
         border.color: "black"
       }
     }
@@ -228,7 +232,7 @@ Rectangle {
     height: width
     radius: width/2
     border.color: "black"
-    color: board.redColor
+    color: board.redPrimaryColor
     anchors.left: redSafetyZone.right
     anchors.leftMargin: -board.cellSize/10
     anchors.verticalCenter: redSafetyZone.verticalCenter
@@ -237,7 +241,7 @@ Rectangle {
   Slide {
     id: greenSlideShort
     width: cellSize*3
-    color: board.greenColor
+    color: board.greenPrimaryColor
     anchors.left: greenStart.horizontalCenter
     anchors.verticalCenter: bottomRow.verticalCenter
   }
@@ -245,7 +249,7 @@ Rectangle {
   Slide {
     id: greenSlideLong
     width: cellSize*4
-    color: board.greenColor
+    color: board.greenPrimaryColor
     anchors.right: greenSlideShort.left
     anchors.rightMargin: cellSize*5
     anchors.verticalCenter: bottomRow.verticalCenter
@@ -254,7 +258,7 @@ Rectangle {
   Slide {
     id: redSlideShort
     width: cellSize*3
-    color: board.redColor
+    color: board.redPrimaryColor
     transform: Rotation {
       origin.x: 0
       origin.y: redSlideShort.height/2
@@ -268,7 +272,7 @@ Rectangle {
   Slide {
     id: redSlideLong
     width: cellSize*4
-    color: board.redColor
+    color: board.redPrimaryColor
     transform: Rotation {
       origin.x: 0
       origin.y: redSlideLong.height/2
@@ -283,7 +287,7 @@ Rectangle {
   Slide {
     id: blueSlideShort
     width: cellSize*3
-    color: board.blueColor
+    color: board.bluePrimaryColor
     anchors.left: blueStart.horizontalCenter
     anchors.verticalCenter: topRow.verticalCenter
     transform: Rotation {
@@ -296,7 +300,7 @@ Rectangle {
   Slide {
     id: blueSlideLong
     width: cellSize*4
-    color: board.blueColor
+    color: board.bluePrimaryColor
     anchors.left: parent.left
     anchors.leftMargin: cellSize * 13.5
     anchors.verticalCenter: topRow.verticalCenter
@@ -310,7 +314,7 @@ Rectangle {
   Slide {
     id: yellowSlideShort
     width: cellSize*3
-    color: board.yellowColor
+    color: board.yellowPrimaryColor
     transform: Rotation {
       origin.x: 0
       origin.y: yellowSlideShort.height/2
@@ -324,7 +328,7 @@ Rectangle {
   Slide {
     id: yellowSlideLong
     width: cellSize*4
-    color: board.yellowColor
+    color: board.yellowPrimaryColor
     transform: Rotation {
       origin.x: 0
       origin.y: yellowSlideLong.height/2

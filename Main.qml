@@ -4,62 +4,202 @@ import Sorry
 
 Window {
   id: window
-  width: 1400
-  height: 912
+  width: 1300
+  height: 1100
   visible: true
   title: qsTr("Sorry")
-  
+  minimumWidth: board.minHeight + 200
+  minimumHeight: board.minHeight + textPane.height + playerPanels.height
+
   Board {
     id: board
-    height: parent.height - cardPane.height
+    readonly property double minHeight: 500
+    height: Math.max(minHeight, parent.height - playerPanels.height - textPane.height)
     width: height
     anchors.left: parent.left
     anchors.top: parent.top
 
     readonly property double basePieceSize: 1/32
 
-    Repeater {
-      id: pieceRepeater
-      model: 4
-      Piece {
-        width: board.basePieceSize * board.height
-        color: "green"
-        pieceIndex: index
+    function getPieceRepeater(playerColor) {
+      if (playerColor == PlayerColor.Green) {
+        return greenPieceRepeater
+      } else if (playerColor == PlayerColor.Red) {
+        return redPieceRepeater
+      } else if (playerColor == PlayerColor.Blue) {
+        return bluePieceRepeater
+      } else if (playerColor == PlayerColor.Yellow) {
+        return yellowPieceRepeater
+      } else {
+        console.log("Unknown player; cannot get piece repeater")
+        return null
       }
     }
 
-    function getPos(pieceIndex, boardPos) {
+    Repeater {
+      id: greenPieceRepeater
+      model: 4
+      Piece {
+        width: board.basePieceSize * board.height
+        color: board.greenSecondaryColor
+        pieceIndex: index
+        visible: false
+      }
+    }
+
+    Repeater {
+      id: redPieceRepeater
+      model: 4
+      Piece {
+        width: board.basePieceSize * board.height
+        color: board.redSecondaryColor
+        pieceIndex: index
+        visible: false
+      }
+    }
+
+    Repeater {
+      id: bluePieceRepeater
+      model: 4
+      Piece {
+        width: board.basePieceSize * board.height
+        color: board.blueSecondaryColor
+        pieceIndex: index
+        visible: false
+      }
+    }
+
+    Repeater {
+      id: yellowPieceRepeater
+      model: 4
+      Piece {
+        width: board.basePieceSize * board.height
+        color: board.yellowSecondaryColor
+        pieceIndex: index
+        visible: false
+      }
+    }
+
+    function getPos(player, pieceIndex, boardPos) {
       const pieceSize = board.basePieceSize * board.height
       const leftMargin = board.cellSize/2
       const topMargin = board.cellSize/2
       const cellSize = board.cellSize
       if (boardPos == 0) {
-        if (pieceIndex == 0) {
-          return [leftMargin + cellSize * 10.5 - pieceSize/2,
-                  topMargin + cellSize * 12.9 - pieceSize/2]
-        } else if (pieceIndex == 1) {
-          return [leftMargin + cellSize * 11.5 - pieceSize/2,
-                  topMargin + cellSize * 12.9 - pieceSize/2]
-        } else if (pieceIndex == 2) {
-          return [leftMargin + cellSize * 10.5 - pieceSize/2,
-                  topMargin + cellSize * 13.9 - pieceSize/2]
-        } else if (pieceIndex == 3) {
-          return [leftMargin + cellSize * 11.5 - pieceSize/2,
-                  topMargin + cellSize * 13.9 - pieceSize/2]
+        if (player == PlayerColor.Green) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 10.5 - pieceSize/2,
+                    topMargin + cellSize * 12.9 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 11.5 - pieceSize/2,
+                    topMargin + cellSize * 12.9 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 10.5 - pieceSize/2,
+                    topMargin + cellSize * 13.9 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 11.5 - pieceSize/2,
+                    topMargin + cellSize * 13.9 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Red) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 2.125 - pieceSize/2,
+                    topMargin + cellSize * 10.5 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 2.125 - pieceSize/2,
+                    topMargin + cellSize * 11.5 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 1.125 - pieceSize/2,
+                    topMargin + cellSize * 10.5 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 1.125 - pieceSize/2,
+                    topMargin + cellSize * 11.5 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Blue) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 4.5 - pieceSize/2,
+                    topMargin + cellSize * 2.1 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 3.5 - pieceSize/2,
+                    topMargin + cellSize * 2.1 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 4.5 - pieceSize/2,
+                    topMargin + cellSize * 1.1 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 3.5 - pieceSize/2,
+                    topMargin + cellSize * 1.1 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Yellow) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 12.875 - pieceSize/2,
+                    topMargin + cellSize * 4.5 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 12.875 - pieceSize/2,
+                    topMargin + cellSize * 3.5 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 13.875 - pieceSize/2,
+                    topMargin + cellSize * 4.5 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 13.875 - pieceSize/2,
+                    topMargin + cellSize * 3.5 - pieceSize/2]
+          }
         }
       } else if (boardPos == 66) {
-        if (pieceIndex == 0) {
-          return [leftMargin + cellSize * 12.5 - pieceSize/2,
-                  topMargin + cellSize * 8 - pieceSize/2]
-        } else if (pieceIndex == 1) {
-          return [leftMargin + cellSize * 13.5 - pieceSize/2,
-                  topMargin + cellSize * 8 - pieceSize/2]
-        } else if (pieceIndex == 2) {
-          return [leftMargin + cellSize * 12.5 - pieceSize/2,
-                  topMargin + cellSize * 9 - pieceSize/2]
-        } else if (pieceIndex == 3) {
-          return [leftMargin + cellSize * 13.5 - pieceSize/2,
-                  topMargin + cellSize * 9 - pieceSize/2]
+        if (player == PlayerColor.Green) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 12.5 - pieceSize/2,
+                    topMargin + cellSize * 8 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 13.5 - pieceSize/2,
+                    topMargin + cellSize * 8 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 12.5 - pieceSize/2,
+                    topMargin + cellSize * 9 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 13.5 - pieceSize/2,
+                    topMargin + cellSize * 9 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Red) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 7 - pieceSize/2,
+                    topMargin + cellSize * 12.5 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 7 - pieceSize/2,
+                    topMargin + cellSize * 13.5 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 6 - pieceSize/2,
+                    topMargin + cellSize * 12.5 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 6 - pieceSize/2,
+                    topMargin + cellSize * 13.5 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Blue) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 2.5 - pieceSize/2,
+                    topMargin + cellSize * 7 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 1.5 - pieceSize/2,
+                    topMargin + cellSize * 7 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 2.5 - pieceSize/2,
+                    topMargin + cellSize * 6 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 1.5 - pieceSize/2,
+                    topMargin + cellSize * 6 - pieceSize/2]
+          }
+        } else if (player == PlayerColor.Yellow) {
+          if (pieceIndex == 0) {
+            return [leftMargin + cellSize * 8 - pieceSize/2,
+                    topMargin + cellSize * 2.5 - pieceSize/2]
+          } else if (pieceIndex == 1) {
+            return [leftMargin + cellSize * 8 - pieceSize/2,
+                    topMargin + cellSize * 1.5 - pieceSize/2]
+          } else if (pieceIndex == 2) {
+            return [leftMargin + cellSize * 9 - pieceSize/2,
+                    topMargin + cellSize * 2.5 - pieceSize/2]
+          } else if (pieceIndex == 3) {
+            return [leftMargin + cellSize * 9 - pieceSize/2,
+                    topMargin + cellSize * 1.5 - pieceSize/2]
+          }
         }
       } else if (boardPos >= 1 && boardPos <= 13) {
         // "Start" of bottom row.
@@ -83,10 +223,38 @@ Window {
                 topMargin + cellSize * 15 - pieceSize/2]
       } else if (boardPos >= 61 && boardPos <= 65) {
         // Safe zone.
-        return [leftMargin + cellSize * 13 - pieceSize/2,
-                topMargin + cellSize * (10 + 65-boardPos) - pieceSize/2]
+        if (player == PlayerColor.Green) {
+          return [leftMargin + cellSize * 13 - pieceSize/2,
+                  topMargin + cellSize * (10 + 65-boardPos) - pieceSize/2]
+        } else if (player == PlayerColor.Red) {
+          return [leftMargin + cellSize * (5 + boardPos-65) - pieceSize/2,
+                  topMargin + cellSize * 13 - pieceSize/2]
+        } else if (player == PlayerColor.Blue) {
+          return [leftMargin + cellSize * 2 - pieceSize/2,
+                  topMargin + cellSize * (5 + boardPos-65) - pieceSize/2]
+        } else if (player == PlayerColor.Yellow) {
+          return [leftMargin + cellSize * (10 + 65-boardPos) - pieceSize/2,
+                  topMargin + cellSize * 2 - pieceSize/2]
+        }
       }
+      console.log("Asking for invalid piece position")
       return [0, 0]
+    }
+
+    function initialize() {
+      // Show everything for active players
+      let players = SorryBackend.getPlayers()
+      for (let playerColor of players) {
+        // Show cards
+        let panel = playerPanels.getPlayerPanel(playerColor)
+        panel.isPlaying = true
+
+        // Show pieces
+        let pieceRepeater = getPieceRepeater(playerColor)
+        for (let i=0; i<pieceRepeater.count; ++i) {
+          pieceRepeater.itemAt(i).visible = true
+        }
+      }
     }
 
     function display() {
@@ -94,48 +262,63 @@ Window {
         console.log("Board not yet ready, not going to continue")
         return
       }
-      // var pos0 = getPos(0, 66)
-      // var pos1 = getPos(1, 66)
-      // var pos2 = getPos(2, 66)
-      // var pos3 = getPos(3, 66)
-      // var piece0 = pieceRepeater.itemAt(0)
-      // var piece1 = pieceRepeater.itemAt(1)
-      // var piece2 = pieceRepeater.itemAt(2)
-      // var piece3 = pieceRepeater.itemAt(3)
+      // var pos0 = getPos(PlayerColor.Yellow, 0, 62)
+      // var pos1 = getPos(PlayerColor.Yellow, 1, 63)
+      // var pos2 = getPos(PlayerColor.Yellow, 2, 64)
+      // var pos3 = getPos(PlayerColor.Yellow, 3, 65)
+      // var piece0 = yellowPieceRepeater.itemAt(0)
+      // var piece1 = yellowPieceRepeater.itemAt(1)
+      // var piece2 = yellowPieceRepeater.itemAt(2)
+      // var piece3 = yellowPieceRepeater.itemAt(3)
       // piece0.x = pos0[0]; piece0.y = pos0[1]
       // piece1.x = pos1[0]; piece1.y = pos1[1]
       // piece2.x = pos2[0]; piece2.y = pos2[1]
       // piece3.x = pos3[0]; piece3.y = pos3[1]
+      // return
 
-      // Position pieces
-      var positions = SorryBackend.getPiecePositions();
-      for (var i=0; i<positions.length; ++i) {
-        var pos = getPos(i, positions[i])
-        var piece = pieceRepeater.itemAt(i)
-        if (piece && pos) {
-          piece.x = pos[0]
-          piece.y = pos[1]
-        } else if (!piece) {
-          console.log("Piece ", i, " is null")
-        } else {
-          console.log("Pos is null")
+      var players = SorryBackend.getPlayers()
+      for (var player of players) {
+
+        // Position pieces
+        var positions = SorryBackend.getPiecePositionsForPlayer(player)
+        var pieceRepeater = getPieceRepeater(player)
+        if (pieceRepeater === null) {
+          continue
         }
-      }
+        for (var i=0; i<positions.length; ++i) {
+          var pos = getPos(player, i, positions[i])
+          var piece = pieceRepeater.itemAt(i)
+          if (piece && pos) {
+            piece.x = pos[0]
+            piece.y = pos[1]
+          } else if (!piece) {
+            console.log("Piece ", i, " is null")
+          } else {
+            console.log("Pos is null")
+          }
+        }
 
-      // Populate cards
-      const cardStrings = SorryBackend.getCardStrings()
-      for (var i=0; i<5; ++i) {
-        var card = cardRepeater.itemAt(i)
-        if (card) {
-          cardRepeater.itemAt(i).cardText = cardStrings[i]
-        } else {
-          console.log("Card ", i, " is null")
+        // Populate cards
+        const cardStrings = SorryBackend.getCardStringsForPlayer(player)
+        var playerPanel = playerPanels.getPlayerPanel(player)
+        for (var i=0; i<playerPanel.cardRepeater.count; ++i) {
+          var card = playerPanel.cardRepeater.itemAt(i)
+          if (card) {
+            // Reset card highlighting
+            card.highlightCount = 0
+            card.cardText = cardStrings[i]
+          } else {
+            console.log("Card is null")
+          }
         }
       }
     }
 
     // Ensure all dynamic rectangles are destroyed when parentRectangle is destroyed
-    Component.onCompleted: display()
+    Component.onCompleted: {
+      initialize()
+      display()
+    }
     onWidthChanged: {
       display()
     }
@@ -144,18 +327,11 @@ Window {
       display()
     }
 
-    MouseArea {
-      anchors.fill: parent
-      onClicked: {
-        console.log(mouseX, " ", mouseY)
-      }
-    }
-
     Canvas {
       id: canvas
       anchors.fill: parent
 
-      property var moves: []
+      property var moveGroups: ({})
 
       // Code to draw a simple arrow on TypeScript canvas got from https://stackoverflow.com/a/64756256/867349
       function arrow(context, fromx, fromy, tox, toy) {
@@ -176,13 +352,18 @@ Window {
         context.stroke();
       }
 
-      function pushMove(move) {
-        moves.push(move)
+      function pushMoveGroup(index, moveGroup) {
+        moveGroups[index] = moveGroup
         canvas.requestPaint()
       }
 
-      function popMove() {
-        moves.shift()
+      function popMoveGroup(index) {
+        delete moveGroups[index]
+        canvas.requestPaint()
+      }
+
+      function resetMoveGroups() {
+        moveGroups = {}
         canvas.requestPaint()
       }
 
@@ -194,30 +375,12 @@ Window {
         // Make a slight adjustment so that the arrow starts/ends at the center of the piece's position
         var adjust = board.basePieceSize * board.height / 2
 
-        for (const move of moves) {
-          var src0 = board.getPos(move.pieceIndex0, move.moveSourcePos0)
-          var dest0 = board.getPos(move.pieceIndex0, move.moveDestinationPos0)
-          arrow(ctx, src0[0]+adjust, src0[1]+adjust, dest0[0]+adjust, dest0[1]+adjust)
-          if ("pieceIndex1" in move) {
-            var src1 = board.getPos(move.pieceIndex1, move.moveSourcePos1)
-            var dest1 = board.getPos(move.pieceIndex1, move.moveDestinationPos1)
-            arrow(ctx, src1[0]+adjust, src1[1]+adjust, dest1[0]+adjust, dest1[1]+adjust)
+        for (const index in moveGroups) {
+          for (const move of moveGroups[index]) {
+            var src0 = board.getPos(move.playerColor, move.pieceIndex, move.srcPosition)
+            var dest0 = board.getPos(move.playerColor, move.pieceIndex, move.destPosition)
+            arrow(ctx, src0[0]+adjust, src0[1]+adjust, dest0[0]+adjust, dest0[1]+adjust)
           }
-        }
-      }
-
-      Button {
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: parent.width * 0.15
-        height: parent.height * 0.04
-        Text {
-          text: "Reset Game"
-          font.pointSize: parent.height * .5
-          anchors.centerIn: parent
-        }
-        onClicked: {
-          SorryBackend.resetGame()
         }
       }
     }
@@ -226,6 +389,44 @@ Window {
       target: SorryBackend
       function onBoardStateChanged() {
         board.display()
+      }
+
+      function onWinRatesChanged(winRates) {
+        winRatesText.setWinRates(winRates)
+      }
+      function onPlayerTurnChanged() {
+        canvas.resetMoveGroups()
+      }
+    }
+
+    Button {
+      id: resetButton
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.horizontalCenter: parent.horizontalCenter
+      width: parent.width * 0.15
+      height: parent.height * 0.04
+      Text {
+        text: "Reset Game"
+        font.pointSize: parent.height * .5
+        anchors.centerIn: parent
+      }
+      onClicked: {
+        SorryBackend.resetGame()
+      }
+    }
+
+    Text {
+      id: winRatesText
+      anchors.top: resetButton.bottom
+      anchors.horizontalCenter: board.horizontalCenter
+      text: ""
+      color: "black"
+      font.pointSize: 12
+      function setWinRates(winRates) {
+        winRatesText.text = "Green:" + (winRates[0]*100).toFixed(2) + "%\n" +
+                            "Red:" + (winRates[1]*100).toFixed(2) + "%\n" +
+                            "Blue:" + (winRates[2]*100).toFixed(2) + "%\n" +
+                            "Yellow:" + (winRates[3]*100).toFixed(2) + "%"
       }
     }
   }
@@ -240,7 +441,7 @@ Window {
 
     Text {
       id: moveCountText
-      text: "Moves: " + SorryBackend.moveCount + "   Seed: " + SorryBackend.randomSeed + "   Iterations: " + SorryBackend.iterationCount
+      text: "Seed: " + SorryBackend.randomSeed + "   Iterations: " + SorryBackend.iterationCount
       color: "white"
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
@@ -249,28 +450,57 @@ Window {
   }
 
   Rectangle {
-    id: cardPane
-    height: 100
+    color: "black"
+    height: 150
     anchors.top: textPane.bottom
     anchors.left: board.left
     anchors.right: board.right
-    color: "black"
-    Row {
-      id: cardRow
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.top: parent.top
-      anchors.bottom: parent.bottom
-      anchors.leftMargin: 3
-      anchors.rightMargin: 3
-      spacing: 5
-      Repeater {
-        id: cardRepeater
-        model: 5
-        Card {
-          width: (cardRow.width - cardRow.spacing*4) / 5
-          height: cardRow.height * 2
-          cardText: "12"
+    Grid {
+      id: playerPanels
+      anchors.fill: parent
+      columns: 2
+
+      PlayerPanel {
+        height: parent.height/2
+        width: parent.width/2
+        primaryColor: board.bluePrimaryColor
+        secondaryColor: board.blueSecondaryColor
+        animation.running: (SorryBackend.playerTurn == PlayerColor.Blue)
+      }
+
+      PlayerPanel {
+        height: parent.height/2
+        width: parent.width/2
+        primaryColor: board.yellowPrimaryColor
+        secondaryColor: board.yellowSecondaryColor
+        animation.running: (SorryBackend.playerTurn == PlayerColor.Yellow)
+      }
+
+      PlayerPanel {
+        height: parent.height/2
+        width: parent.width/2
+        primaryColor: board.redPrimaryColor
+        secondaryColor: board.redSecondaryColor
+        animation.running: (SorryBackend.playerTurn == PlayerColor.Red)
+      }
+
+      PlayerPanel {
+        height: parent.height/2
+        width: parent.width/2
+        primaryColor: board.greenPrimaryColor
+        secondaryColor: board.greenSecondaryColor
+        animation.running: (SorryBackend.playerTurn == PlayerColor.Green)
+      }
+
+      function getPlayerPanel(playerColor) {
+        if (playerColor === PlayerColor.Green) {
+          return playerPanels.children[3]
+        } else if (playerColor === PlayerColor.Red) {
+          return playerPanels.children[2]
+        } else if (playerColor === PlayerColor.Blue) {
+          return playerPanels.children[0]
+        } else if (playerColor === PlayerColor.Yellow) {
+          return playerPanels.children[1]
         }
       }
     }
@@ -295,13 +525,39 @@ Window {
           color: "black"
           border.color: "white"
           radius: height * .2
+          property var isHuman: SorryBackend.playerType == PlayerType.Human
+          property var isOnlyItem: actionListView.count == 1
+          property var previousIsBest: false
+          property var isBest: model.isBest
+          function drawActionArrows() {
+            if (model.index >= 0) {
+              // Draw a line from the moved piece's src to dest (and for the second piece too, if this is a double move)
+              var moves = SorryBackend.getMovesForAction(model.index)
+              canvas.pushMoveGroup(model.index, moves)
+            }
+          }
+
+          function undrawActionArrows() {
+            if (model.index >= 0) {
+              canvas.popMoveGroup(model.index)
+            }
+          }
+          onIsBestChanged: {
+            if (SorryBackend.playerType == PlayerType.Mcts) {
+              if (isBest) {
+                drawActionArrows()
+              } else {
+                undrawActionArrows()
+              }
+            }
+          }
           Rectangle {
             // Score "progress" bar
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: parent.width * model.score
-            color: "#00FF00"
+            width: parent.width * (isHuman ? 0 : model.score)
+            color: "#00FFFF"
             opacity: .2
             radius: parent.radius
             border.color: "transparent"
@@ -309,60 +565,64 @@ Window {
           }
           Text {
             anchors.centerIn: parent
-            text: model.name + " (" + model.averageMoves.toFixed(1) + " moves)"
-            font.pointSize: actionButton.height * .35
-            color: "white"
+            text: model.name + ((isHuman || isOnlyItem) ? "" : " (" + (model.score*100).toFixed(2) + "%)")
+            font.pointSize: Math.max(1,actionButton.height * .35)
+            color: (!isHuman && (isOnlyItem || isBest)) ? "#FFBBFF" : "white"
           }
           MouseArea {
             anchors.fill: parent
             hoverEnabled: true
 
             onClicked: {
-              // Clear card highlighting
-              for (var i=0; i<5; ++i) {
-                var card = cardRepeater.itemAt(i)
-                card.highlightCount = 0
+              if (SorryBackend.playerType == PlayerType.Mcts) {
+                // Cannot take action for bot
+                return
               }
               // Do action
-              SorryBackend.doAction(model.index)
+              SorryBackend.doActionFromActionList(model.index)
             }
 
             onEntered: {
               actionButton.color = "#404040"
 
-              // Draw a line from the moved piece's src to dest (and for the second piece too, if this is a double move)
-              var srcAndDest = SorryBackend.getSrcAndDestPositionsForAction(model.index)
-              if (srcAndDest.length >= 3) {
-                var canvasMove = {}
-                canvasMove.pieceIndex0 = srcAndDest[0]
-                canvasMove.moveSourcePos0 = srcAndDest[1]
-                canvasMove.moveDestinationPos0 = srcAndDest[2]
-                if (srcAndDest.length >= 6) {
-                  canvasMove.pieceIndex1 = srcAndDest[3]
-                  canvasMove.moveSourcePos1 = srcAndDest[4]
-                  canvasMove.moveDestinationPos1 = srcAndDest[5]
+              if (model.index >= 0) {
+                // Highlight the used card
+                var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
+                var playerColor = SorryBackend.getPlayerForAction(model.index)
+                var playerPanel = playerPanels.getPlayerPanel(playerColor)
+                for (let cardIndex of cardIndices) {
+                  var card = playerPanel.cardRepeater.itemAt(cardIndex)
+                  card.highlightCount++
                 }
-                canvas.pushMove(canvasMove)
               }
 
-              // Highlight the used card
-              var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
-              for (var i=0; i<cardIndices.length; ++i) {
-                var card = cardRepeater.itemAt(cardIndices[i])
-                card.highlightCount++
+              if (SorryBackend.playerType == PlayerType.Mcts) {
+                // Do not draw actions for MCTS when action entered
+                return
               }
+
+              drawActionArrows()
             }
 
             onExited: {
               actionButton.color = "#000000"
 
-              canvas.popMove()
-
-              var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
-              for (var i=0; i<cardIndices.length; ++i) {
-                var card = cardRepeater.itemAt(cardIndices[i])
-                card.highlightCount--
+              if (model.index >= 0) {
+                var cardIndices = SorryBackend.getCardIndicesForAction(model.index)
+                var playerColor = SorryBackend.getPlayerForAction(model.index)
+                var playerPanel = playerPanels.getPlayerPanel(playerColor)
+                for (let cardIndex of cardIndices) {
+                  var card = playerPanel.cardRepeater.itemAt(cardIndex)
+                  card.highlightCount--
+                }
               }
+
+              if (SorryBackend.playerType == PlayerType.Mcts) {
+                // Do not draw actions for MCTS when action entered
+                return
+              }
+
+              undrawActionArrows()
             }
           }
       }

@@ -21,8 +21,25 @@ qt_add_qml_module(appSorry
         Card.qml
         Main.qml
         Piece.qml
+        PlayerPanel.qml
         Slide.qml
-        SOURCES sorry_backend.h sorry_backend.cpp Sorry-MCTS/sorry.hpp Sorry-MCTS/sorry.cpp Sorry-MCTS/sorryMcts.hpp Sorry-MCTS/sorryMcts.cpp Sorry-MCTS/action.cpp Sorry-MCTS/action.hpp Sorry-MCTS/card.cpp Sorry-MCTS/card.hpp
+    SOURCES
+        sorry_backend.h
+        sorry_backend.cpp
+        Sorry-MCTS/action.cpp
+        Sorry-MCTS/action.hpp
+        Sorry-MCTS/card.cpp
+        Sorry-MCTS/card.hpp
+        Sorry-MCTS/common.cpp
+        Sorry-MCTS/common.hpp
+        Sorry-MCTS/deck.cpp
+        Sorry-MCTS/deck.hpp
+        Sorry-MCTS/playerColor.cpp
+        Sorry-MCTS/playerColor.hpp
+        Sorry-MCTS/sorry.hpp
+        Sorry-MCTS/sorry.cpp
+        Sorry-MCTS/sorryMcts.hpp
+        Sorry-MCTS/sorryMcts.cpp
         # RESOURCES sorry.webp board_1.jpg
 )
 
