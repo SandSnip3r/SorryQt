@@ -4,7 +4,7 @@ This repository provides a UI for the board game Sorry along with visualization 
 
 Make sure to clone the submodule for the Sorry and MCTS implementations.
 
-![img](appSorry_D5TMKN3cNc.png)
+![img](images/appSorry_D5TMKN3cNc.png)
 
 # Building in Qt Creator
 
