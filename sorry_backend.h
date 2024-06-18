@@ -160,6 +160,7 @@ signals:
   void actionChosen(sorry::Action action);
 
 private:
+  static constexpr bool kHiddenHand{true};
   static constexpr bool kHumanIsMctsAssisted{false};
   std::map<sorry::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
   SorryMcts mcts_{2};

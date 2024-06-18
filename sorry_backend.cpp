@@ -14,19 +14,18 @@ SorryBackend::~SorryBackend() {
 
 void SorryBackend::initializeGame() {
   // Initialize random engine
-  // randomSeed_ = -557428517;
   randomSeed_ = std::random_device()();
   emit randomSeedChanged();
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed});
+  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
   // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
 
   playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::Human;
-  playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
-  // playerTypes_[sorry::PlayerColor::kBlue] = PlayerType::Mcts;
+  // playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
+  playerTypes_[sorry::PlayerColor::kBlue] = PlayerType::Mcts;
   // playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
 
   // Emit signals
@@ -121,8 +120,10 @@ void SorryBackend::runMctsAgent() {
     mcts_.reset();
     emit actionChosen(bestAction);
   });
-  // Start another thread to periodically get data from mcts.
-  actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
+  if (!kHiddenHand) {
+    // Start another thread to periodically get data from mcts.
+    actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
+  }
 }
 
 void SorryBackend::terminateThreads() {
@@ -201,6 +202,10 @@ void SorryBackend::doAction(const sorry::Action &action) {
 }
 
 void SorryBackend::initializeActions() {
+  if (kHiddenHand && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human) {
+    actionScoresChanged({});
+    return;
+  }
   const auto actions = sorryState_.getActions();
   std::vector<ActionScore> actionScores;
   actionScores.reserve(actions.size());
@@ -232,6 +237,13 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
+  if (kHiddenHand && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human) {
+    return { QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)) };
+  }
   QList<QString> result;
   const auto hand = sorryState_.getHandForPlayer(backendEnumToSorryEnum(playerColor));
   for (const auto card : hand) {
