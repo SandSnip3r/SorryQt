@@ -429,6 +429,29 @@ Window {
                             "Yellow:" + (winRates[3]*100).toFixed(2) + "%"
       }
     }
+    Row {
+      id: deckCardRow
+      anchors.bottom: resetButton.top
+      anchors.bottomMargin: board.height * 0.01
+      anchors.left: resetButton.left
+      anchors.leftMargin: -board.width * 0.02
+      property var deckCardWidth: board.width * 0.05
+      spacing: -deckCardWidth * 0.9
+      Repeater {
+        model: SorryBackend.faceDownCardsCount
+        Card {
+          id: deckCard
+          width: deckCardRow.deckCardWidth
+          height: deckCardRow.deckCardWidth * 7/4
+          cardText: ""
+          Text {
+            anchors.centerIn: parent
+            text: SorryBackend.faceDownCardsCount
+            font.pointSize: deckCardRow.deckCardWidth * .5
+          }
+        }
+      }
+    }
   }
 
   Rectangle {

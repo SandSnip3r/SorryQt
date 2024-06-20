@@ -19,14 +19,26 @@ void SorryBackend::initializeGame() {
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
-  // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
+  // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
+  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
 
-  playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::Human;
-  // playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
+  playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::Mcts;
+  playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
   playerTypes_[sorry::PlayerColor::kBlue] = PlayerType::Mcts;
-  // playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
+  playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
+
+  // If no player is human, disable hidden hand
+  if (hiddenHand_ == true) {
+    bool noneAreHuman{true};
+    for (const auto &playerType : playerTypes_) {
+      if (playerType.second == PlayerType::Human) {
+        noneAreHuman = false;
+        break;
+      }
+    }
+    hiddenHand_ = !noneAreHuman;
+  }
 
   // Emit signals
   emit playerTurnChanged();
@@ -52,6 +64,10 @@ void SorryBackend::updateAi() {
 void SorryBackend::resetGame() {
   terminateThreads();
   initializeGame();
+}
+
+int SorryBackend::faceDownCardsCount() const {
+  return sorryState_.getFaceDownCardsCount();
 }
 
 PlayerColor::PlayerColorEnum SorryBackend::playerTurn() const {
@@ -120,7 +136,7 @@ void SorryBackend::runMctsAgent() {
     mcts_.reset();
     emit actionChosen(bestAction);
   });
-  if (!kHiddenHand) {
+  if (!hiddenHand_) {
     // Start another thread to periodically get data from mcts.
     actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
   }
@@ -202,7 +218,7 @@ void SorryBackend::doAction(const sorry::Action &action) {
 }
 
 void SorryBackend::initializeActions() {
-  if (kHiddenHand && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human) {
+  if (hiddenHand_ && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human) {
     actionScoresChanged({});
     return;
   }
@@ -237,7 +253,7 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
-  if (kHiddenHand && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human) {
+  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human) {
     return { QString::fromStdString(toString(sorry::Card::kUnknown)),
              QString::fromStdString(toString(sorry::Card::kUnknown)),
              QString::fromStdString(toString(sorry::Card::kUnknown)),
