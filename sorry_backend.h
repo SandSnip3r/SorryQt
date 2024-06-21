@@ -163,7 +163,7 @@ private:
   bool hiddenHand_{true};
   static constexpr bool kHumanIsMctsAssisted{false};
   std::map<sorry::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
-  SorryMcts mcts_{0.55};
+  SorryMcts mcts_{0.65};
   ExplicitTerminator mctsTerminator_;
   std::thread actionProberThread_;
   std::atomic<bool> runProber_;

@@ -14,7 +14,8 @@ SorryBackend::~SorryBackend() {
 
 void SorryBackend::initializeGame() {
   // Initialize random engine
-  randomSeed_ = std::random_device()();
+  randomSeed_ = -365113758;
+  // randomSeed_ = std::random_device()();
   emit randomSeedChanged();
   eng_ = std::mt19937(randomSeed_);
 
@@ -22,6 +23,7 @@ void SorryBackend::initializeGame() {
   sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
   // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
+  std::cout << sorryState_.toString() << std::endl;
 
   playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::MctsAssistedHuman;
   // playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
@@ -92,11 +94,11 @@ void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
     const auto actionsAndScores = mcts_.getActionScores();
-    // std::cout << actionsAndScores.size() << " actionScores";
-    // for (const auto &actionScore : actionsAndScores) {
-    //   std::cout << ", " << actionScore.action.toString() << "; " << actionScore.score;
-    // }
-    // std::cout << std::endl;
+    std::cout << actionsAndScores.size() << " actionScores";
+    for (const auto &actionScore : actionsAndScores) {
+      std::cout << ", " << actionScore.action.toString() << "; " << actionScore.score;
+    }
+    std::cout << std::endl;
     emit actionScoresChanged(actionsAndScores);
     const auto winRates = mcts_.getWinRates();
     emit winRatesChanged(winRates);
@@ -253,13 +255,13 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
-  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
-    return { QString::fromStdString(toString(sorry::Card::kUnknown)),
-             QString::fromStdString(toString(sorry::Card::kUnknown)),
-             QString::fromStdString(toString(sorry::Card::kUnknown)),
-             QString::fromStdString(toString(sorry::Card::kUnknown)),
-             QString::fromStdString(toString(sorry::Card::kUnknown)) };
-  }
+  // if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
+  //   return { QString::fromStdString(toString(sorry::Card::kUnknown)),
+  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
+  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
+  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
+  //            QString::fromStdString(toString(sorry::Card::kUnknown)) };
+  // }
   QList<QString> result;
   const auto hand = sorryState_.getHandForPlayer(backendEnumToSorryEnum(playerColor));
   for (const auto card : hand) {
