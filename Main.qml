@@ -286,15 +286,15 @@ Window {
           continue
         }
         for (var i=0; i<positions.length; ++i) {
-          var pos = getPos(player, i, positions[i])
           var piece = pieceRepeater.itemAt(i)
-          if (piece && pos) {
-            piece.x = pos[0]
-            piece.y = pos[1]
-          } else if (!piece) {
-            console.log("Piece ", i, " is null")
-          } else {
-            console.log("Pos is null")
+          if (piece) {
+            var pos = getPos(player, i, positions[i])
+            if (pos) {
+              piece.x = pos[0]
+              piece.y = pos[1]
+            } else {
+              console.log("Pos is null")
+            }
           }
         }
 
@@ -407,7 +407,7 @@ Window {
       height: parent.height * 0.04
       Text {
         text: "Reset Game"
-        font.pointSize: parent.height * .5
+        font.pointSize: Math.max(1, parent.height * .5)
         anchors.centerIn: parent
       }
       onClicked: {
@@ -447,7 +447,7 @@ Window {
           Text {
             anchors.centerIn: parent
             text: SorryBackend.faceDownCardsCount
-            font.pointSize: deckCardRow.deckCardWidth * .5
+            font.pointSize: Math.max(1, deckCardRow.deckCardWidth * .5)
           }
         }
       }
@@ -468,7 +468,7 @@ Window {
       color: "white"
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
-      font.pointSize: Math.min(parent.width * .05, parent.height * .5)
+      font.pointSize: Math.max(1, Math.min(parent.width * .05, parent.height * .5))
     }
   }
 
@@ -530,7 +530,7 @@ Window {
   }
 
   Rectangle {
-    id: newActionsPane
+    id: actionsPane
     anchors.right: parent.right
     anchors.top: parent.top
     anchors.bottom: parent.bottom
@@ -543,7 +543,7 @@ Window {
       model: SorryBackend.actionListModel
       delegate: Rectangle {
           id: actionButton
-          width: newActionsPane.width
+          width: actionsPane.width
           height: width * .1
           color: "black"
           border.color: "white"

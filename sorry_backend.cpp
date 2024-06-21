@@ -19,20 +19,20 @@ void SorryBackend::initializeGame() {
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
-  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
+  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
+  // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
 
-  playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::Mcts;
-  playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
+  playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::MctsAssistedHuman;
+  // playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
   playerTypes_[sorry::PlayerColor::kBlue] = PlayerType::Mcts;
-  playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
+  // playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
 
   // If no player is human, disable hidden hand
   if (hiddenHand_ == true) {
     bool noneAreHuman{true};
     for (const auto &playerType : playerTypes_) {
-      if (playerType.second == PlayerType::Human) {
+      if (playerType.second == PlayerType::Human || playerType.second == PlayerType::MctsAssistedHuman) {
         noneAreHuman = false;
         break;
       }
@@ -253,7 +253,7 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
-  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human) {
+  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
     return { QString::fromStdString(toString(sorry::Card::kUnknown)),
              QString::fromStdString(toString(sorry::Card::kUnknown)),
              QString::fromStdString(toString(sorry::Card::kUnknown)),
