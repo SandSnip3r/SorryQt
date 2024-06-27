@@ -129,6 +129,7 @@ class SorryBackend : public QObject {
   Q_PROPERTY(int iterationCount READ iterationCount NOTIFY iterationCountChanged)
   Q_PROPERTY(PlayerColor::PlayerColorEnum playerTurn READ playerTurn NOTIFY playerTurnChanged)
   Q_PROPERTY(PlayerType::PlayerTypeEnum playerType READ playerType NOTIFY playerTurnChanged)
+  Q_PROPERTY(QString winner READ winner NOTIFY winnerChanged)
 public:
   explicit SorryBackend(QObject *parent = nullptr);
   ~SorryBackend();
@@ -147,6 +148,7 @@ public:
   Q_INVOKABLE QList<MoveForArrow*> getMovesForAction(int index) const;
   ActionsList* actionListModel();
   int iterationCount() const;
+  QString winner() const;
 
 signals:
   void boardStateChanged();
@@ -158,6 +160,7 @@ signals:
   void faceDownCardsCountChanged();
   void playerTurnChanged();
   void actionChosen(sorry::Action action);
+  void winnerChanged();
 
 private:
   bool hiddenHand_{true};

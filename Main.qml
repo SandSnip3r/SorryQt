@@ -388,6 +388,7 @@ Window {
     Connections {
       target: SorryBackend
       function onBoardStateChanged() {
+        canvas.resetMoveGroups()
         board.display()
       }
 
@@ -450,6 +451,24 @@ Window {
             font.pointSize: Math.max(1, deckCardRow.deckCardWidth * .5)
           }
         }
+      }
+    }
+
+    Rectangle {
+      id: winnerRect
+      anchors.top: resetButton.bottom
+      anchors.horizontalCenter: board.horizontalCenter
+      width: board.width * 0.35
+      height: width / 2
+      radius: width * .03
+      border.color: "black"
+      border.width: width * 0.02
+      color: "#FFBB00"
+      visible: SorryBackend.playerTurn == PlayerColor.GameOver
+      Text {
+        anchors.centerIn: parent
+        text: SorryBackend.winner + " wins!"
+        font.pointSize: Math.max(1, winnerRect.height * 0.2)
       }
     }
   }

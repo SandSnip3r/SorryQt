@@ -14,8 +14,8 @@ SorryBackend::~SorryBackend() {
 
 void SorryBackend::initializeGame() {
   // Initialize random engine
-  randomSeed_ = -365113758;
-  // randomSeed_ = std::random_device()();
+  // randomSeed_ = 1780346957;
+  randomSeed_ = std::random_device()();
   emit randomSeedChanged();
   eng_ = std::mt19937(randomSeed_);
 
@@ -23,6 +23,7 @@ void SorryBackend::initializeGame() {
   sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kBlue});
   // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
+
   std::cout << sorryState_.toString() << std::endl;
 
   playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::MctsAssistedHuman;
@@ -39,10 +40,14 @@ void SorryBackend::initializeGame() {
         break;
       }
     }
+    if (noneAreHuman) {
+      std::cout << "No player is human, disabling hidden hand" << std::endl;
+    }
     hiddenHand_ = !noneAreHuman;
   }
 
   // Emit signals
+  emit winnerChanged();
   emit playerTurnChanged();
   emit boardStateChanged();
   initializeActions();
@@ -90,15 +95,17 @@ int SorryBackend::iterationCount() const {
   return lastIterationCount_;
 }
 
+QString SorryBackend::winner() const {
+  if (!sorryState_.gameDone()) {
+    return tr("");
+  }
+  return QString::fromStdString(std::string(sorry::toString(sorryState_.getWinner())));
+}
+
 void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
     const auto actionsAndScores = mcts_.getActionScores();
-    std::cout << actionsAndScores.size() << " actionScores";
-    for (const auto &actionScore : actionsAndScores) {
-      std::cout << ", " << actionScore.action.toString() << "; " << actionScore.score;
-    }
-    std::cout << std::endl;
     emit actionScoresChanged(actionsAndScores);
     const auto winRates = mcts_.getWinRates();
     emit winRatesChanged(winRates);
@@ -213,14 +220,17 @@ void SorryBackend::doAction(const sorry::Action &action) {
     emit playerTurnChanged();
   }
   emit boardStateChanged();
+  initializeActions();
   if (!sorryState_.gameDone()) {
-    initializeActions();
     updateAi();
+  } else {
+    emit playerTurnChanged();
+    emit winnerChanged();
   }
 }
 
 void SorryBackend::initializeActions() {
-  if (hiddenHand_ && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human) {
+  if (hiddenHand_ && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::MctsAssistedHuman) {
     actionScoresChanged({});
     return;
   }
@@ -255,13 +265,13 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
-  // if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
-  //   return { QString::fromStdString(toString(sorry::Card::kUnknown)),
-  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
-  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
-  //            QString::fromStdString(toString(sorry::Card::kUnknown)),
-  //            QString::fromStdString(toString(sorry::Card::kUnknown)) };
-  // }
+  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
+    return { QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::Card::kUnknown)) };
+  }
   QList<QString> result;
   const auto hand = sorryState_.getHandForPlayer(backendEnumToSorryEnum(playerColor));
   for (const auto card : hand) {
