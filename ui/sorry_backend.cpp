@@ -20,14 +20,14 @@ void SorryBackend::initializeGame() {
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed});
-  // sorryState_ = sorry::Sorry({sorry::PlayerColor::kGreen, sorry::PlayerColor::kRed, sorry::PlayerColor::kBlue, sorry::PlayerColor::kYellow});
+  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
+  // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
   sorryState_.drawRandomStartingCards(eng_);
 
-  playerTypes_[sorry::PlayerColor::kGreen] = PlayerType::Human;
-  playerTypes_[sorry::PlayerColor::kRed] = PlayerType::Mcts;
-  // playerTypes_[sorry::PlayerColor::kBlue] = PlayerType::Mcts;
-  // playerTypes_[sorry::PlayerColor::kYellow] = PlayerType::Mcts;
+  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
+  playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
+  // playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Mcts;
+  // playerTypes_[sorry::engine::PlayerColor::kYellow] = PlayerType::Mcts;
 
   // Emit signals
   emit playerTurnChanged();
@@ -138,29 +138,29 @@ void SorryBackend::terminateThreads() {
   }
 }
 
-PlayerColor::PlayerColorEnum SorryBackend::sorryEnumToBackendEnum(sorry::PlayerColor playerColor) {
-  if (playerColor == sorry::PlayerColor::kGreen) {
+PlayerColor::PlayerColorEnum SorryBackend::sorryEnumToBackendEnum(sorry::engine::PlayerColor playerColor) {
+  if (playerColor == sorry::engine::PlayerColor::kGreen) {
     return PlayerColor::Green;
-  } else if (playerColor == sorry::PlayerColor::kRed) {
+  } else if (playerColor == sorry::engine::PlayerColor::kRed) {
     return PlayerColor::Red;
-  } else if (playerColor == sorry::PlayerColor::kBlue) {
+  } else if (playerColor == sorry::engine::PlayerColor::kBlue) {
     return PlayerColor::Blue;
-  } else if (playerColor == sorry::PlayerColor::kYellow) {
+  } else if (playerColor == sorry::engine::PlayerColor::kYellow) {
     return PlayerColor::Yellow;
   } else {
     throw std::runtime_error("Invalid player color");
   }
 }
 
-sorry::PlayerColor SorryBackend::backendEnumToSorryEnum(PlayerColor::PlayerColorEnum playerColor) {
+sorry::engine::PlayerColor SorryBackend::backendEnumToSorryEnum(PlayerColor::PlayerColorEnum playerColor) {
   if (playerColor == PlayerColor::Green) {
-    return sorry::PlayerColor::kGreen;
+    return sorry::engine::PlayerColor::kGreen;
   } else if (playerColor == PlayerColor::Red) {
-    return sorry::PlayerColor::kRed;
+    return sorry::engine::PlayerColor::kRed;
   } else if (playerColor == PlayerColor::Blue) {
-    return sorry::PlayerColor::kBlue;
+    return sorry::engine::PlayerColor::kBlue;
   } else if (playerColor == PlayerColor::Yellow) {
-    return sorry::PlayerColor::kYellow;
+    return sorry::engine::PlayerColor::kYellow;
   } else {
     throw std::runtime_error("Invalid player color");
   }
@@ -180,12 +180,12 @@ void SorryBackend::doActionFromActionList(int index) {
   doAction(*action);
 }
 
-void SorryBackend::doActionAsAgent(const sorry::Action &action) {
+void SorryBackend::doActionAsAgent(const sorry::engine::Action &action) {
   terminateThreads();
   doAction(action);
 }
 
-void SorryBackend::doAction(const sorry::Action &action) {
+void SorryBackend::doAction(const sorry::engine::Action &action) {
   std::cout << "Doing action " << action.toString() << std::endl;
   const auto prevPlayerTurn = sorryState_.getPlayerTurn();
   sorryState_.doAction(action, eng_);
@@ -308,9 +308,9 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
 
   const ActionScore &actionScore = actionScores_.at(index.row());
   if (role == NameRole) {
-    const sorry::Action &action = actionScore.action;
-    if (action.actionType == sorry::Action::ActionType::kDiscard) {
-      return tr("Discard %1").arg(QString::fromStdString(sorry::toString(action.card)));
+    const sorry::engine::Action &action = actionScore.action;
+    if (action.actionType == sorry::engine::Action::ActionType::kDiscard) {
+      return tr("Discard %1").arg(QString::fromStdString(sorry::engine::toString(action.card)));
     }
     return QVariant(QString::fromStdString(action.toString()));
   } else if (role == ScoreRole) {
@@ -334,7 +334,7 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
   }
   for (size_t givenActionIndex=0; givenActionIndex<actionsAndScores.size(); ++givenActionIndex) {
     const auto &givenActionScore = actionsAndScores.at(givenActionIndex);
-    const sorry::Action &givenAction = givenActionScore.action;
+    const sorry::engine::Action &givenAction = givenActionScore.action;
     bool foundAction = false;
     for (size_t existingActionIndex=0; existingActionIndex<actionScores_.size(); ++existingActionIndex) {
       ActionScore &actionScore = actionScores_.at(existingActionIndex);
@@ -370,7 +370,7 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
   }
 }
 
-std::optional<sorry::Action> ActionsList::getAction(int index) const {
+std::optional<sorry::engine::Action> ActionsList::getAction(int index) const {
   std::unique_lock lock(mutex_);
   if (index < 0 || index >= actionScores_.size()) {
     return {};

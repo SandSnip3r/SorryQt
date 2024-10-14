@@ -1,69 +1,14 @@
-cmake_minimum_required(VERSION 3.16)
+# Minimum version of CMake required
+cmake_minimum_required(VERSION 3.20)
 
-project(Sorry VERSION 0.1 LANGUAGES CXX)
+# Project name
+project(sorry)
 
-set (CMAKE_CXX_STANDARD 20)
+# C++ Standard
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Quick)
-
-qt_standard_project_setup()
-
-qt_add_executable(appSorry
-  main.cpp
-)
-
-qt_policy(
-  SET QTP0001 NEW
-)
-
-qt_add_qml_module(appSorry
-  URI Sorry
-  VERSION 1.0
-  QML_FILES
-    Board.qml
-    Card.qml
-    Main.qml
-    Piece.qml
-    PlayerPanel.qml
-    Slide.qml
-  SOURCES
-    sorry_backend.h
-    sorry_backend.cpp
-    Sorry-MCTS/action.cpp
-    Sorry-MCTS/action.hpp
-    Sorry-MCTS/card.cpp
-    Sorry-MCTS/card.hpp
-    Sorry-MCTS/common.cpp
-    Sorry-MCTS/common.hpp
-    Sorry-MCTS/deck.cpp
-    Sorry-MCTS/deck.hpp
-    Sorry-MCTS/playerColor.cpp
-    Sorry-MCTS/playerColor.hpp
-    Sorry-MCTS/sorry.hpp
-    Sorry-MCTS/sorry.cpp
-    Sorry-MCTS/sorryMcts.hpp
-    Sorry-MCTS/sorryMcts.cpp
-)
-
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
-set_target_properties(appSorry PROPERTIES
-#  MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appSorry
-  MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-  MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-  MACOSX_BUNDLE TRUE
-  WIN32_EXECUTABLE TRUE
-)
-
-target_link_libraries(appSorry
-  PRIVATE Qt6::Quick
-)
-
-include(GNUInstallDirs)
-install(TARGETS appSorry
-  BUNDLE DESTINATION .
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+add_subdirectory(agent)
+add_subdirectory(common)
+add_subdirectory(engine)
+add_subdirectory(ui)

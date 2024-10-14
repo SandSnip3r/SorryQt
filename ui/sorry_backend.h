@@ -1,8 +1,8 @@
 #ifndef SORRY_BACKEND_H
 #define SORRY_BACKEND_H
 
-#include "Sorry-MCTS/sorry.hpp"
-#include "Sorry-MCTS/sorryMcts.hpp"
+#include <sorry/agent/mcts/sorryMcts.hpp>
+#include <sorry/engine/sorry.hpp>
 
 #include <QAbstractItemModel>
 #include <QAbstractListModel>
@@ -73,7 +73,7 @@ class ActionForQml : public QObject {
   Q_PROPERTY(double score READ score NOTIFY scoreChanged)
 public:
   ActionForQml() = default;
-  ActionForQml(const sorry::Action &action, double score) : action_(action), score_(score) {}
+  ActionForQml(const sorry::engine::Action &action, double score) : action_(action), score_(score) {}
 
   void updateScore(double newScore) {
     score_ = newScore;
@@ -81,7 +81,7 @@ public:
   }
 
   QString name() const { return QString::fromStdString(action_.toString()); }
-  Q_INVOKABLE const sorry::Action& getAction() const { return action_; }
+  Q_INVOKABLE const sorry::engine::Action& getAction() const { return action_; }
   double score() const { return score_; }
 
 signals:
@@ -89,7 +89,7 @@ signals:
   void scoreChanged();
 
 private:
-  sorry::Action action_;
+  sorry::engine::Action action_;
   double score_;
 };
 
@@ -104,7 +104,7 @@ public:
   int rowCount(const QModelIndex &parent = QModelIndex()) const override;
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
   void setActionsAndScores(const std::vector<ActionScore> &actionsAndScores);
-  std::optional<sorry::Action> getAction(int index) const;
+  std::optional<sorry::engine::Action> getAction(int index) const;
 protected:
   QHash<int, QByteArray> roleNames() const override {
     QHash<int, QByteArray> roles;
@@ -157,11 +157,11 @@ signals:
   void randomSeedChanged();
   void moveCountChanged();
   void playerTurnChanged();
-  void actionChosen(sorry::Action action);
+  void actionChosen(sorry::engine::Action action);
 
 private:
   static constexpr bool kHumanIsMctsAssisted{false};
-  std::map<sorry::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
+  std::map<sorry::engine::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
   SorryMcts mcts_{2};
   ExplicitTerminator mctsTerminator_;
   std::thread actionProberThread_;
@@ -170,7 +170,7 @@ private:
   std::thread mctsThread_;
   int randomSeed_;
   std::mt19937 eng_;
-  sorry::Sorry sorryState_{sorry::PlayerColor::kGreen};
+  sorry::engine::Sorry sorryState_{sorry::engine::PlayerColor::kGreen};
   std::mutex actionsMutex_;
   QVector<ActionForQml*> actions_;
   ActionsList actionsList_;
@@ -183,11 +183,11 @@ private:
   void probeActions();
   void terminateThreads();
   void runMctsAgent();
-  void doActionAsAgent(const sorry::Action &action);
-  void doAction(const sorry::Action &action);
+  void doActionAsAgent(const sorry::engine::Action &action);
+  void doAction(const sorry::engine::Action &action);
 
-  static PlayerColor::PlayerColorEnum sorryEnumToBackendEnum(sorry::PlayerColor playerColor);
-  static sorry::PlayerColor backendEnumToSorryEnum(PlayerColor::PlayerColorEnum playerColor);
+  static PlayerColor::PlayerColorEnum sorryEnumToBackendEnum(sorry::engine::PlayerColor playerColor);
+  static sorry::engine::PlayerColor backendEnumToSorryEnum(PlayerColor::PlayerColorEnum playerColor);
 };
 
 #endif // SORRY_BACKEND_H
