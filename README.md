@@ -17,7 +17,7 @@ The repository is for the board game Sorry.
 
 ## Building
 
-I've only tested building this in Ubuntu 22 in WSL2 on Windows 10. If you have issues building the UI code, either check the build instructions in [ui/](ui/README.md#running-in-ubuntu-wsl2) or comment out the `add_subdirectory` in the top level `CMakeLists.txt`.
+I've only tested building this in Ubuntu 22 in WSL2 on Windows 10. If you have issues building the UI code, either check the UI build instructions in the section [Running In Ubuntu WSL2](ui/README.md#running-in-ubuntu-wsl2) or comment out the `add_subdirectory` in the top level `CMakeLists.txt`.
 
 ```
 mkdir build
