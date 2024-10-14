@@ -6,12 +6,22 @@ The repository is for the board game Sorry.
 
 ## Contents
 
-- [agent](agent/)
-  - [mcts](agent/mcts/)
-    - An implementation of Monte Carlo Tree Search for Sorry
-  - [rl](agent/rl/)
-    - Reinforcement Learning for Sorry
-- [engine](engine/)
+- [agent/mcts/](agent/mcts/)
+  - An implementation of Monte Carlo Tree Search for Sorry
+- [agent/rl/](agent/rl/)
+  - Reinforcement Learning for Sorry
+- [engine/](engine/)
   - The core logic of the game Sorry
-- [ui](ui/)
+- [ui/](ui/)
   - A Qt-based UI for playing Sorry against various agents
+
+## Building
+
+I've only tested building this in Ubuntu 22 in WSL2 on Windows 10. If you have issues building the UI code, either check the build instructions in [ui/](ui/README.md) or comment out the `add_subdirectory` in the top level `CMakeLists.txt`.
+
+```
+mkdir build
+cd build
+cmake ../
+cmake --build .
+```
