@@ -19,6 +19,11 @@ public:
   bool empty() const;
   void shuffle();
 private:
+  // Deck is made of three sections:
+  // |--FaceDown--|--Out--|--Discarded--|
+  // FaceDown cards are the ones which are not yet drawn. These are face-down and not visible to any player.
+  // Out cards are the ones which are in some players' hand. Each player may see their own hand, but not the hand of another player.
+  // Discarded cards are the ones which have been played. These are face-up and visible to all players.
   std::array<Card, 45> cards_;
   size_t firstOutIndex_;
   size_t firstDiscardIndex_;

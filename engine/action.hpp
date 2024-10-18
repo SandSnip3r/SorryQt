@@ -19,7 +19,8 @@ public:
   };
   static Action discard(PlayerColor playerColor, Card card);
   static Action singleMove(PlayerColor playerColor, Card card, int pieceIndex, int moveDestination);
-  static Action doubleMove(PlayerColor playerColor, Card card, int piece1Index, int move1Destination, int piece2Index, int move2Destination);
+  static Action doubleMove(PlayerColor playerColor, Card card, int piece1Index, int move1Destination,
+                                                               int piece2Index, int move2Destination);
   static Action sorry(PlayerColor playerColor, int moveDestination);
   static Action swap(PlayerColor playerColor, int pieceIndex, int moveDestination);
   std::string toString() const;
@@ -28,6 +29,7 @@ public:
   ActionType actionType;
   Card card;
   int piece1Index;
+  // Movement destinations are before sliding.
   int move1Destination;
   int piece2Index;
   int move2Destination;

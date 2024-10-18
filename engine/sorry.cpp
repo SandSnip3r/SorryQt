@@ -33,23 +33,35 @@ Sorry::Sorry(const PlayerColor *playerColors, size_t playerCount) {
       }
     }
   }
+
+  // Initialize players
   players_.resize(playerCount);
   for (size_t i=0; i<playerCount; ++i) {
     auto &player = players_.at(i);
     player.playerColor = playerColors[i];
-    player.piecePositions[0] = getFirstPosition(player.playerColor); // Always start with 1 piece out of Start.
+  }
+}
+
+void Sorry::reset(std::mt19937 &eng) {
+  // Initialize player piece positions
+  for (sorry::engine::Sorry::Player &player : players_) {
+    if (SorryRules::instance().startWithOnePieceOutOfStart) {
+      player.piecePositions[0] = getFirstPosition(player.playerColor);
+    } else {
+      player.piecePositions[0] = 0;
+    }
     player.piecePositions[1] = 0;
     player.piecePositions[2] = 0;
     player.piecePositions[3] = 0;
   }
 
+  // Set current player index
   currentPlayerIndex_ = 0;
 
+  // Initialize deck
   deck_.initialize();
-}
 
-void Sorry::drawRandomStartingCards(std::mt19937 &eng) {
-  // TODO: For now, we assume that the deck has been freshly initialized.
+  // Draw starting cards for each player
   for (Player &player : players_) {
     for (size_t i=0; i<player.hand.size(); ++i) {
       player.hand.at(i) = deck_.drawRandomCard(eng);
@@ -58,28 +70,29 @@ void Sorry::drawRandomStartingCards(std::mt19937 &eng) {
       }
     }
   }
-  haveStartingHands_ = true;
+  resetCalledAtLeastOnce_ = true;
 }
 
-void Sorry::setStartingCards(PlayerColor playerColor, const std::array<Card,5> &cards) {
-  // Remove cards from deck and insert into hand.
-  Player &player = getPlayer(playerColor);
-  for (size_t i=0; i<cards.size(); ++i) {
-    player.hand[i] = cards[i];
-    deck_.removeSpecificCard(cards[i]);
-  }
+// TODO: Possibly provide a version of `reset` which takes the starting cards as an argument.
+// void Sorry::setStartingCards(PlayerColor playerColor, const std::array<Card,5> &cards) {
+//   // Remove cards from deck and insert into hand.
+//   Player &player = getPlayer(playerColor);
+//   for (size_t i=0; i<cards.size(); ++i) {
+//     player.hand[i] = cards[i];
+//     deck_.removeSpecificCard(cards[i]);
+//   }
 
-  static std::vector<bool> haveStartingHandForPlayer(players_.size(), false);
-  auto it = std::find_if(players_.begin(), players_.end(), [&](const auto &p) {
-    return p.playerColor == playerColor;
-  });
-  if (it == players_.end()) {
-    throw std::runtime_error("Dont have player");
-  }
-  int index = std::distance(players_.begin(), it);
-  haveStartingHandForPlayer[index] = true;
-  haveStartingHands_ = std::all_of(haveStartingHandForPlayer.begin(), haveStartingHandForPlayer.end(), [](bool b) { return b; });
-}
+//   static std::vector<bool> haveStartingHandForPlayer(players_.size(), false);
+//   auto it = std::find_if(players_.begin(), players_.end(), [&](const auto &p) {
+//     return p.playerColor == playerColor;
+//   });
+//   if (it == players_.end()) {
+//     throw std::runtime_error("Dont have player");
+//   }
+//   int index = std::distance(players_.begin(), it);
+//   haveStartingHandForPlayer[index] = true;
+//   resetCalledAtLeastOnce_ = std::all_of(haveStartingHandForPlayer.begin(), haveStartingHandForPlayer.end(), [](bool b) { return b; });
+// }
 
 void Sorry::setStartingPositions(PlayerColor playerColor, const std::array<int, 4> &positions) {
   Player &player = getPlayer(playerColor);
@@ -99,7 +112,7 @@ void Sorry::setTurn(PlayerColor playerColor) {
 }
 
 std::string Sorry::toString() const {
-  if (!haveStartingHands_) {
+  if (!resetCalledAtLeastOnce_) {
     throw std::runtime_error("Called toString() without starting hands set");
   }
   std::stringstream ss;
@@ -114,7 +127,7 @@ std::string Sorry::toString() const {
 
 std::string Sorry::handToString() const {
   throw std::runtime_error("Not yet implemented");
-  // if (!haveStartingHands_) {
+  // if (!resetCalledAtLeastOnce_) {
   //   throw std::runtime_error("Called handToString() without starting hands set");
   // }
   // std::stringstream ss;
@@ -148,7 +161,7 @@ PlayerColor Sorry::getPlayerTurn() const {
 }
 
 std::vector<Action> Sorry::getActions() const {
-  if (!haveStartingHands_) {
+  if (!resetCalledAtLeastOnce_) {
     throw std::runtime_error("Called getActions() without a starting hand set");
   }
   if (gameDone()) {
@@ -260,7 +273,7 @@ std::vector<Sorry::Move> Sorry::getMovesForAction(const Action &action) const {
 
 void Sorry::doAction(const Action &action, std::mt19937 &eng) {
   const auto prevState = *this;
-  if (!haveStartingHands_) {
+  if (!resetCalledAtLeastOnce_) {
     throw std::runtime_error("Called doAction() without a starting hand set");
   }
   Player &player = getPlayer(action.playerColor);

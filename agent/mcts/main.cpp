@@ -88,7 +88,7 @@ sorry::engine::PlayerColor agentVsAgent(const std::map<sorry::engine::PlayerColo
     playerColors.push_back(colorAndAgent.first);
   }
   sorry::engine::Sorry sorry(playerColors);
-  sorry.drawRandomStartingCards(eng);
+  sorry.reset(eng);
 
   int turnNumber=0;
   while (!sorry.gameDone()) {
@@ -106,7 +106,7 @@ void doSingleMove() {
   mt19937 eng(123);
   SorryMcts mcts(20.0);
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kBlue});
-  sorry.drawRandomStartingCards(eng);
+  sorry.reset(eng);
   cout << "State " << sorry.toString() << std::endl;
   std::cout << "Actions are:" << std::endl;
   const auto actions = sorry.getActions();

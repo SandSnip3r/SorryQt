@@ -20,7 +20,10 @@ set(SRC_FILES
 
 # Build library
 add_executable(rl_main ${SRC_FILES})
+add_executable(syntaxTest syntaxTest.cpp)
 
 target_compile_definitions(rl_main PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(rl_main PRIVATE sorry::common sorry::engine pybind11::embed pybind11::module ${Python3_LIBRARIES})
+
+target_link_libraries(syntaxTest PRIVATE sorry::common sorry::engine pybind11::embed pybind11::module ${Python3_LIBRARIES})

@@ -36,8 +36,8 @@ class Sorry {
 public:
   Sorry(const std::vector<PlayerColor> &playerColors);
   Sorry(std::initializer_list<PlayerColor> playerColors);
-  void drawRandomStartingCards(std::mt19937 &eng);
-  void setStartingCards(PlayerColor playerColor, const std::array<Card,5> &cards);
+  void reset(std::mt19937 &eng);
+  // void setStartingCards(PlayerColor playerColor, const std::array<Card,5> &cards);
   void setStartingPositions(PlayerColor playerColor, const std::array<int, 4> &positions);
   void setTurn(PlayerColor playerColor);
 
@@ -47,6 +47,22 @@ public:
   std::vector<PlayerColor> getPlayers() const;
   PlayerColor getPlayerTurn() const;
   std::array<Card,5> getHandForPlayer(PlayerColor playerColor) const;
+
+  /* Internally, piece positions are tracked as follows:
+  *   - 0 is the player's start; this is the case for all players.
+  *     That is to say, Yellow's start is 0, Green's start is 0, etc.
+  *   - The public/shared positions on the board are 1-60. We've chosen
+  *     2 as the position that Green moves to after coming out of start.
+  *     The numbers increment in a clockwise direction. The position
+  *     counterclockwise of 2 is 1, we call this "Green's Gooch".
+  *     For players other than Green, the position immediately
+  *     after 60 is 1; Green would instead move up into his safe zone.
+  *   - There are 5 safe positions (61,62,63,64,65). Similar to
+  *     the start position, these are private positions that each player
+  *     has their own instance of.
+  *   - 66 is the player's start. Similar to the start & safe positions,
+  *     this is a private position that each player has their own instance of.
+  */
   std::array<int, 4> getPiecePositionsForPlayer(PlayerColor playerColor) const;
   std::vector<Action> getActions() const;
 
@@ -73,7 +89,7 @@ private:
     std::string toString() const;
   };
   std::vector<Player> players_;
-  bool haveStartingHands_{false};
+  bool resetCalledAtLeastOnce_{false};
   int currentPlayerIndex_;
   Deck deck_;
   void addActionsForCard(const Player &player, Card card, std::vector<Action> &actions) const;

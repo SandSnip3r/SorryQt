@@ -42,3 +42,6 @@ class TestClass:
     return jnp.asarray(modelResult)
 
     # return self.f(self.model, self.parameters, arg)
+
+  def getObs(self, data):
+    print(f'Got an observation: {data}')
