@@ -22,7 +22,7 @@ void SorryBackend::initializeGame() {
   // Create new Sorry game
   sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
-  sorryState_.drawRandomStartingCards(eng_);
+  sorryState_.reset(eng_);
 
   playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
   playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
