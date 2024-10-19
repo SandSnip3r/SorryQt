@@ -13,24 +13,24 @@ Action Action::discard(PlayerColor playerColor, Card card) {
   return a;
 }
 
-Action Action::singleMove(PlayerColor playerColor, Card card, int pieceIndex, int moveDestination) {
+Action Action::singleMove(PlayerColor playerColor, Card card, int moveSource, int moveDestination) {
   Action a;
   a.playerColor = playerColor;
   a.actionType = ActionType::kSingleMove;
   a.card = card;
-  a.piece1Index = pieceIndex;
+  a.move1Source = moveSource;
   a.move1Destination = moveDestination;
   return a;
 }
 
-Action Action::doubleMove(PlayerColor playerColor, Card card, int piece1Index, int move1Destination, int piece2Index, int move2Destination) {
+Action Action::doubleMove(PlayerColor playerColor, Card card, int move1Source, int move1Destination, int move2Source, int move2Destination) {
   Action a;
   a.playerColor = playerColor;
   a.actionType = ActionType::kDoubleMove;
   a.card = card;
-  a.piece1Index = piece1Index;
+  a.move1Source = move1Source;
   a.move1Destination = move1Destination;
-  a.piece2Index = piece2Index;
+  a.move2Source = move2Source;
   a.move2Destination = move2Destination;
   return a;
 }
@@ -44,12 +44,12 @@ Action Action::sorry(PlayerColor playerColor, int moveDestination) {
   return a;
 }
 
-Action Action::swap(PlayerColor playerColor, int pieceIndex, int moveDestination) {
+Action Action::swap(PlayerColor playerColor, int moveSource, int moveDestination) {
   Action a;
   a.playerColor = playerColor;
   a.actionType = ActionType::kSwap;
   a.card = Card::kEleven;
-  a.piece1Index = pieceIndex;
+  a.move1Source = moveSource;
   a.move1Destination = moveDestination;
   return a;
 }
@@ -74,9 +74,9 @@ std::string Action::toString() const {
     ss << ',' << sorry::engine::toString(card);
   }
   if (actionType == ActionType::kSingleMove || actionType == ActionType::kDoubleMove || actionType == ActionType::kSwap) {
-    ss << ',' << piece1Index << ',' << move1Destination;
+    ss << ',' << move1Source << ',' << move1Destination;
     if (actionType == ActionType::kDoubleMove) {
-      ss << ',' << piece2Index << ',' << move2Destination;
+      ss << ',' << move2Source << ',' << move2Destination;
     }
   } else if (actionType == ActionType::kSorry) {
     ss << ',' << move1Destination;
@@ -94,18 +94,18 @@ bool operator==(const Action &lhs, const Action &rhs) {
   } else if (lhs.actionType == Action::ActionType::kSingleMove) {
     return rhs.actionType == Action::ActionType::kSingleMove &&
            lhs.card == rhs.card &&
-           lhs.piece1Index == rhs.piece1Index &&
+           lhs.move1Source == rhs.move1Source &&
            lhs.move1Destination == rhs.move1Destination;
   } else if (lhs.actionType == Action::ActionType::kDoubleMove) {
     return rhs.actionType == Action::ActionType::kDoubleMove &&
            lhs.card == rhs.card &&
-           lhs.piece1Index == rhs.piece1Index &&
+           lhs.move1Source == rhs.move1Source &&
            lhs.move1Destination == rhs.move1Destination &&
-           lhs.piece2Index == rhs.piece2Index &&
+           lhs.move2Source == rhs.move2Source &&
            lhs.move2Destination == rhs.move2Destination;
   } else if (lhs.actionType == Action::ActionType::kSwap) {
     return rhs.actionType == Action::ActionType::kSwap &&
-           lhs.piece1Index == rhs.piece1Index &&
+           lhs.move1Source == rhs.move1Source &&
            lhs.move1Destination == rhs.move1Destination;
   } else if (lhs.actionType == Action::ActionType::kSorry) {
     return rhs.actionType == Action::ActionType::kSorry &&

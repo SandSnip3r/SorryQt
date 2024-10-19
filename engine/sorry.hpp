@@ -93,6 +93,7 @@ private:
   int currentPlayerIndex_;
   Deck deck_;
   void addActionsForCard(const Player &player, Card card, std::vector<Action> &actions) const;
+  int getIndexOfPieceAtPosition(PlayerColor playerColor, int position) const;
   std::optional<int> getMoveResultingPos(const Player &player, int pieceIndex, int moveDistance) const;
   std::optional<std::pair<int,int>> getDoubleMoveResultingPos(const Player &player, int piece1Index, int move1Distance, int piece2Index, int move2Distance) const;
   int slideLengthAtPos(PlayerColor playerColor, int pos) const;

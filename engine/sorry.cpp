@@ -235,27 +235,29 @@ std::vector<Sorry::Move> Sorry::getMovesForAction(const Action &action) const {
   std::vector<Move> result;
   if (action.actionType == Action::ActionType::kSingleMove ||
       action.actionType == Action::ActionType::kDoubleMove) {
+    const int piece1Index = getIndexOfPieceAtPosition(action.playerColor, action.move1Source);
     result.push_back(Move{.playerColor = action.playerColor,
-                          .pieceIndex = action.piece1Index,
-                          .srcPosition = posOfPlayerPiece(action.playerColor, action.piece1Index),
+                          .pieceIndex = piece1Index,
+                          .srcPosition = action.move1Source,
                           .destPosition = action.move1Destination});
     if (action.actionType == Action::ActionType::kDoubleMove) {
+      const int piece2Index = getIndexOfPieceAtPosition(action.playerColor, action.move2Source);
       result.push_back(Move{.playerColor = action.playerColor,
-                            .pieceIndex = action.piece2Index,
-                            .srcPosition = posOfPlayerPiece(action.playerColor, action.piece2Index),
+                            .pieceIndex = piece2Index,
+                            .srcPosition = action.move2Source,
                             .destPosition = action.move2Destination});
     }
   } else if (action.actionType == Action::ActionType::kSwap) {
-    const auto startPos = posOfPlayerPiece(action.playerColor, action.piece1Index);
+    const int pieceIndex = getIndexOfPieceAtPosition(action.playerColor, action.move1Source);
     result.push_back(Move{.playerColor = action.playerColor,
-                          .pieceIndex = action.piece1Index,
-                          .srcPosition = startPos,
+                          .pieceIndex = pieceIndex,
+                          .srcPosition = action.move1Source,
                           .destPosition = action.move1Destination});
     const auto [index, color] = indexAndColorOfPieceAtPos(action.move1Destination);
     result.push_back(Move{.playerColor = color,
                           .pieceIndex = index,
                           .srcPosition = action.move1Destination,
-                          .destPosition = startPos});
+                          .destPosition = action.move1Source});
   } else if (action.actionType == Action::ActionType::kSorry) {
     const auto indexInStart = firstIndexInStart(action.playerColor);
     result.push_back(Move{.playerColor = action.playerColor,
@@ -300,16 +302,18 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
   };
   if (action.actionType == Action::ActionType::kSingleMove || action.actionType == Action::ActionType::kDoubleMove) {
     // Move one or two pieces
+    const int piece1Index = getIndexOfPieceAtPosition(action.playerColor, action.move1Source);
     // Check if any opponents die.
     checkAndKillOpponents(action.move1Destination, std::max(1,slideLengthAtPos(action.playerColor, action.move1Destination)));
     // Move our piece to final spot
-    player.piecePositions.at(action.piece1Index) = posAfterSlide(action.playerColor, action.move1Destination);
+    player.piecePositions.at(piece1Index) = posAfterSlide(action.playerColor, action.move1Destination);
 
     if (action.actionType == Action::ActionType::kDoubleMove) {
+      const int piece2Index = getIndexOfPieceAtPosition(action.playerColor, action.move2Source);
       // Check if any opponents die.
       checkAndKillOpponents(action.move2Destination, std::max(1,slideLengthAtPos(action.playerColor, action.move2Destination)));
       // Move our piece to final spot
-      player.piecePositions.at(action.piece2Index) = posAfterSlide(action.playerColor, action.move2Destination);
+      player.piecePositions.at(piece2Index) = posAfterSlide(action.playerColor, action.move2Destination);
     }
   } else if (action.actionType == Action::ActionType::kSorry) {
     // Find the first piece at pos 0.
@@ -322,7 +326,7 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
       }
     }
     if (!found) {
-      throw std::runtime_error("Could not find a piece in start");
+      throw std::runtime_error("No piece in Start when trying to use Sorry card");
     }
 
     // Find the opponent & piece at the destination position
@@ -347,7 +351,8 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
       throw std::runtime_error("Could not find target piece");
     }
   } else if (action.actionType == Action::ActionType::kSwap) {
-    int &ourPos = player.piecePositions.at(action.piece1Index);
+    const int piece1Index = getIndexOfPieceAtPosition(action.playerColor, action.move1Source);
+    int &ourPos = player.piecePositions.at(piece1Index);
     // Find who's piece is on the destination position
     bool found = false;
     for (Player &opponentPlayer : players_) {
@@ -457,8 +462,8 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
     for (size_t pieceIndex=0; pieceIndex<player.piecePositions.size(); ++pieceIndex) {
       auto moveResult = getMoveResultingPos(player, pieceIndex, moveAmount);
       if (moveResult) {
-        // Use card `card` and move piece `pieceIndex` from `piecePositions_[pieceIndex]` to `*moveResult`
-        actions.push_back(Action::singleMove(player.playerColor, card, pieceIndex, *moveResult));
+        // Use card `card` and move piece `pieceIndex` from `player.piecePositions[pieceIndex]` to `*moveResult`
+        actions.push_back(Action::singleMove(player.playerColor, card, player.piecePositions[pieceIndex], *moveResult));
       }
     }
   };
@@ -487,10 +492,10 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
       }
     }
     if (canMoveOutOfHome) {
-      for (size_t pieceIndex=0; pieceIndex<player.piecePositions.size(); ++pieceIndex) {
-        if (player.piecePositions[pieceIndex] == 0) {
+      for (int position : player.piecePositions) {
+        if (position == 0) {
           // This piece is in start.
-          actions.push_back(Action::singleMove(player.playerColor, card, pieceIndex, firstPosition));
+          actions.push_back(Action::singleMove(player.playerColor, card, 0, firstPosition));
           // Note: Breaking after moving one item from start prevents duplicate actions. Any other piece in start results in the same action and pieces not in start don't apply here.
           break;
         }
@@ -513,8 +518,8 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
           }
           auto doubleMoveResult = getDoubleMoveResultingPos(player, piece1Index, move1, piece2Index, move2);
           if (doubleMoveResult) {
-            // Use card `card` and move piece `piece1Index` from `piecePositions_[piece1Index]` to `doubleMoveResult->first` and move piece `piece2Index` from `piecePositions_[piece2Index]` to `doubleMoveResult->second`.
-            actions.push_back(Action::doubleMove(player.playerColor, card, piece1Index, doubleMoveResult->first, piece2Index, doubleMoveResult->second));
+            // Use card `card` and move piece `piece1Index` from `player.piecePositions[piece1Index]` to `doubleMoveResult->first` and move piece `piece2Index` from `player.piecePositions[piece2Index]` to `doubleMoveResult->second`.
+            actions.push_back(Action::doubleMove(player.playerColor, card, player.piecePositions[piece1Index], doubleMoveResult->first, player.piecePositions[piece2Index], doubleMoveResult->second));
           }
         }
       }
@@ -541,9 +546,8 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
     }
   }
   if (card == Card::kEleven) {
-    for (size_t i=0; i<player.piecePositions.size(); ++i) {
-      const auto pos = player.piecePositions.at(i);
-      if (!(pos > 0 && pos < 61)) {
+    for (int position : player.piecePositions) {
+      if (!(position > 0 && position < 61)) {
         // Cannot swap using our pieces in start, safe zone, nor home.
         continue;
       }
@@ -556,11 +560,21 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
             continue;
           }
           // Can swap places with this player's piece
-          actions.push_back(Action::swap(player.playerColor, i, otherPos));
+          actions.push_back(Action::swap(player.playerColor, position, otherPos));
         }
       }
     }
   }
+}
+
+int Sorry::getIndexOfPieceAtPosition(PlayerColor playerColor, int position) const {
+  const auto &player = getPlayer(playerColor);
+  for (size_t i=0; i<player.piecePositions.size(); ++i) {
+    if (player.piecePositions.at(i) == position) {
+      return static_cast<int>(i);
+    }
+  }
+  throw std::runtime_error("Player "+std::string(sorry::engine::toString(playerColor))+" has no piece at position "+std::to_string(position));
 }
 
 int Sorry::posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance) const {
