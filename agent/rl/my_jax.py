@@ -1,34 +1,28 @@
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
+from flax import nnx
 from jax import random
 from functools import partial
 
-# # Example JAX neural network
-# class MyModel(nn.Module):
-#   @nn.compact
-#   def __call__(self, x):
-#     x = nn.Dense(128)(x)
-#     x = nn.relu(x)
-#     x = nn.Dense(1)(x)
-#     return x
+class MyModel(nnx.Module):
+  def __init__(self, rngs):
+    self.linear1 = nnx.Linear(in_features=323, out_features=32, rngs=rngs)
+    self.linear2 = nnx.Linear(in_features=32, out_features=16050, rngs=rngs)
 
-# model = MyModel()
-
-# # Forward pass function
-# def forward_pass(state):
-#   params = ...  # Load or initialize your model parameters
-#   return model.apply(params, state)
+  def __call__(self, x):
+    x = self.linear1(x)
+    x = jax.nn.relu(x)
+    x = self.linear2(x)
+    return x
 
 class TestClass:
   def __init__(self):
     print(f'Jax Devices: {jax.devices()}')
     print(f'Initializing my python class')
-    self.model = nn.Dense(features=1)
-    key1, key2 = random.split(random.key(0))
-    dummyData = random.normal(key1, (1,), dtype=jnp.float32)
-    self.parameters = self.model.init(key2, dummyData)
-    print(f'Parameters: {self.parameters}')
+    self.model = MyModel(rngs=nnx.Rngs(0))
+    print(f'Model:')
+    nnx.display(self.model)
   
   # @staticmethod
   # @jax.jit
@@ -43,5 +37,6 @@ class TestClass:
 
     # return self.f(self.model, self.parameters, arg)
 
-  def getObs(self, data):
+  def getAction(self, data):
     print(f'Got an observation: {data}')
+    return self.model(data)
