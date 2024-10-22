@@ -16,6 +16,7 @@ include_directories(${Python3_INCLUDE_DIRS})
 # Source files
 set(SRC_FILES
   main.cpp
+  actionMap.cpp
   jaxModel.cpp
   jaxTrajectory.cpp
 )

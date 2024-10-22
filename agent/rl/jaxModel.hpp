@@ -13,7 +13,7 @@ public:
   JaxModel(pybind11::module &jaxModule);
   void setSeed(int seed);
 
-  sorry::engine::Action getAction(const std::array<sorry::engine::Card, 5> &playerHand, const std::array<int, 4> &playerPiecePositions);
+  std::pair<pybind11::object, sorry::engine::Action> getGradientAndAction(const std::array<sorry::engine::Card, 5> &playerHand, const std::array<int, 4> &playerPiecePositions);
 
   void train(const JaxTrajectory &trajectory);
 private:
@@ -21,8 +21,6 @@ private:
 
   pybind11::array_t<float> observationToNumpyArray(const std::array<sorry::engine::Card, 5> &playerHand,
                                             const std::array<int, 4> &playerPiecePositions) const;
-
-  sorry::engine::Action numpyArrayToAction(const pybind11::array_t<float> &numpyActionVector) const;
 };
 
 #endif // JAX_MODEL_HPP_

@@ -16,10 +16,6 @@
 #include <functional>
 #include <random>
 
-/* General TODOs:
-** - Sorry::reset() method
-**/
-
 using namespace std;
 
 // How long does it take an agent acting randomly to finish a game of Sorry?
@@ -66,14 +62,13 @@ void trainReinforce(py::module &jaxModule) {
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
   // TODO: Color shouldn't matter, I just randomly picked green.
 
-  constexpr int kEpisodeCount = 1;
-  // constexpr int kEpisodeCount = 10'000;
+  // constexpr int kEpisodeCount = 1;
+  constexpr int kEpisodeCount = 100'000;
   for (int i=0; i<kEpisodeCount; ++i) {
     // Generate a full trajectory according to the policy
     sorry.reset(randomEngine);
-    JaxTrajectory trajectory;
+    JaxTrajectory trajectory(jaxModule);
     while (!sorry.gameDone()) {
-      cout << "Game state: " << sorry.toString() << endl;
       // Get the current observation
       std::array<sorry::engine::Card, 5> playerHand = sorry.getHandForPlayer(sorry.getPlayerTurn());
       std::array<int, 4> playerPiecePositions = sorry.getPiecePositionsForPlayer(sorry.getPlayerTurn());
@@ -81,13 +76,13 @@ void trainReinforce(py::module &jaxModule) {
       // std::vector<sorry::engine::Card> discardedCards = sorry.getDiscardedCards();
 
       // Take an action according to the policy
-      sorry::engine::Action action = model.getAction(playerHand, playerPiecePositions);
+      auto [gradient, action] = model.getGradientAndAction(playerHand, playerPiecePositions);
 
       // For now, we terminate the episode if the action is invalid
       std::vector<sorry::engine::Action> actions = sorry.getActions();
       if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
         // This action is invalid, terminate the episode.
-        cout << "Invalid action: " << action.toString() << endl;
+        trajectory.pushStep(gradient, -1.0);
         break;
       }
 
@@ -100,21 +95,22 @@ void trainReinforce(py::module &jaxModule) {
         reward = 0.0;
       } else {
         // Give a small negative reward to encourage the model to finish the game as quickly as possible
-        reward = -0.1;
+        reward = -0.01;
       }
 
       // Store the observation into a python-read trajectory data structure
-      trajectory.pushStep(playerHand, playerPiecePositions, reward);
+      trajectory.pushStep(gradient, reward);
     }
-    // TODO(GPT): A full trajectory has been generated, now train the model
+    // A full trajectory has been generated, now train the model
     model.train(trajectory);
+
+    if ((i+1)%1000 == 0) {
+      cout << "Episode " << i+1 << " complete" << endl;
+    }
   }
 }
 
 int main() {
-  constexpr int kSeed = 0x5EED;
-  mt19937 randomEngine{kSeed};
-
   // Initialize the Python interpreter
   py::scoped_interpreter guard{};
 
@@ -128,43 +124,5 @@ int main() {
   py::module jax_module = py::module::import("my_jax");
 
   trainReinforce(jax_module);
-
-  // // Instantiate the MyModel class from Python
-  // py::object TestClass = jax_module.attr("TestClass");
-
-  // // Create an instance of MyModel
-  // py::object model_instance = TestClass();
-
-  // // ============ Quick test ============
-  // sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kYellow});
-  // sorry.reset(randomEngine);
-  // std::array<sorry::engine::Card, 5> playerHand = sorry.getHandForPlayer(sorry.getPlayerTurn());
-  // std::array<int, 4> playerPiecePositions = sorry.getPiecePositionsForPlayer(sorry.getPlayerTurn());
-  // const py::array_t<float> numpyObservation = observationToNumpyArray(playerHand, playerPiecePositions);
-  // cout << "Consulting model on board: " << sorry.toString() << endl;
-  // py::object res = model_instance.attr("getAction")(numpyObservation);
-  // sorry::engine::Action action = numpyArrayToAction(py::cast<py::array_t<float>>(res));
-  // cout << "Model chose action: " << action.toString() << endl;
-  // return 0;
-  // // ====================================
-
-  // // Call function of class
-  // constexpr int kNumIterations = 10000;
-  // std::array<float, kNumIterations> results;
-  // std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-  // for (int i=0; i<kNumIterations; ++i) {
-  //   const py::object result = model_instance.attr("func")(i);
-  //   const auto &numpy_array = result.cast<py::array_t<float>>();
-  //   const auto &data = numpy_array.unchecked<1>();
-  //   results[i] = data(0);
-  // }
-  // std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
-  // std::cout << "Results: [";
-  // for (int i=0; i<kNumIterations; ++i) {
-  //   std::cout << results[i] << ", ";
-  // }
-  // std::cout << "]" << std::endl;
-  // std::cout << "Calculation took " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
-
   return 0;
 }

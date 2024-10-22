@@ -3,15 +3,17 @@
 
 #include <sorry/engine/card.hpp>
 
+#include <pybind11/pybind11.h>
+
 #include <array>
 
 class JaxTrajectory {
 public:
-  void pushStep(const std::array<sorry::engine::Card, 5> &playerHand,
-                const std::array<int, 4> &playerPiecePositions,
-                double reward) {
-    // TODO
-  }
+  JaxTrajectory(pybind11::module &jaxModule);
+  void pushStep(pybind11::object gradient, double reward);
+  pybind11::object getPythonTrajectory() const;
+private:
+  pybind11::object trajectory_;
 };
 
 #endif // JAX_TRAJECTORY_HPP_
