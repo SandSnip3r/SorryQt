@@ -24,9 +24,9 @@ class Trajectory:
     return len(self.gradients)
 
 class SorryDenseModel(nnx.Module):
-  def __init__(self, rngs):
+  def __init__(self, rngs, actionSpaceSize):
     self.linear1 = nnx.Linear(in_features=323, out_features=32, rngs=rngs)
-    self.linear2 = nnx.Linear(in_features=32, out_features=16050, rngs=rngs)
+    self.linear2 = nnx.Linear(in_features=32, out_features=actionSpaceSize, rngs=rngs)
 
   def __call__(self, x):
     x = self.linear1(x)
@@ -35,15 +35,16 @@ class SorryDenseModel(nnx.Module):
     return self.linear2(x)
 
 class TestClass:
-  def __init__(self):
+  def __init__(self, actionSpaceSize):
     self.rngs = nnx.Rngs(0, sampleStream=1)
-    self.model = SorryDenseModel(rngs=self.rngs)
-    self.learningRate = 0.001
+    self.model = SorryDenseModel(rngs=self.rngs, actionSpaceSize=actionSpaceSize)
+    self.learningRate = 0.01
 
-    def getProbabilityAndIndex(key, model, data):
+    def getProbabilityAndIndex(key, model, data, mask):
       logits = model(data)
-      selectedIndex = jax.random.categorical(key, logits)
-      probabilities = jax.nn.softmax(logits)
+      maskedLogits = logits + mask
+      selectedIndex = jax.random.categorical(key, maskedLogits)
+      probabilities = jax.nn.softmax(maskedLogits)
       oneHotIndex = jax.nn.one_hot(selectedIndex, probabilities.shape[-1])
       selectedProbability = jnp.sum(jax.lax.stop_gradient(oneHotIndex) * probabilities)
       return jnp.log(selectedProbability), selectedIndex
@@ -53,8 +54,8 @@ class TestClass:
   def setSeed(self, seed):
     self.rngs = nnx.Rngs(0, sampleStream=seed)
 
-  def getGradientAndIndex(self, data):
-    ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.sampleStream(), self.model, data)
+  def getGradientAndIndex(self, data, mask):
+    ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.sampleStream(), self.model, data, mask)
     return gradient, index
   
   def train(self, trajectory):

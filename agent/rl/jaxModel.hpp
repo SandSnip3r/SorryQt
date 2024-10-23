@@ -13,7 +13,10 @@ public:
   JaxModel(pybind11::module &jaxModule);
   void setSeed(int seed);
 
-  std::pair<pybind11::object, sorry::engine::Action> getGradientAndAction(const std::array<sorry::engine::Card, 5> &playerHand, const std::array<int, 4> &playerPiecePositions);
+  std::pair<pybind11::object, sorry::engine::Action> getGradientAndAction(
+      const std::array<sorry::engine::Card, 5> &playerHand,
+      const std::array<int, 4> &playerPiecePositions,
+      const std::vector<sorry::engine::Action> *validActions = nullptr);
 
   void train(const JaxTrajectory &trajectory);
 private:

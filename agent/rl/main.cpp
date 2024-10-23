@@ -50,6 +50,8 @@ void simulateRandomGames() {
 namespace py = pybind11;
 
 void trainReinforce(py::module &jaxModule) {
+  constexpr bool kUseActionMasking{true};
+
   // Initialize python module/model
   JaxModel model(jaxModule);
 
@@ -63,11 +65,12 @@ void trainReinforce(py::module &jaxModule) {
   // TODO: Color shouldn't matter, I just randomly picked green.
 
   // constexpr int kEpisodeCount = 1;
-  constexpr int kEpisodeCount = 100'000;
+  constexpr int kEpisodeCount = 1'000'000;
   for (int i=0; i<kEpisodeCount; ++i) {
     // Generate a full trajectory according to the policy
     sorry.reset(randomEngine);
     JaxTrajectory trajectory(jaxModule);
+    int actionCount = 0;
     while (!sorry.gameDone()) {
       // Get the current observation
       std::array<sorry::engine::Card, 5> playerHand = sorry.getHandForPlayer(sorry.getPlayerTurn());
@@ -75,20 +78,34 @@ void trainReinforce(py::module &jaxModule) {
       // TODO: For now, we're not going to bother with the discarded cards.
       // std::vector<sorry::engine::Card> discardedCards = sorry.getDiscardedCards();
 
-      // Take an action according to the policy
-      auto [gradient, action] = model.getGradientAndAction(playerHand, playerPiecePositions);
+      const std::vector<sorry::engine::Action> actions = sorry.getActions();
+      py::object gradient;
+      sorry::engine::Action action;
+      if constexpr (kUseActionMasking) {
+        // Take an action according to the policy, masked by the valid actions
+        std::tie(gradient, action) = model.getGradientAndAction(playerHand, playerPiecePositions, &actions);
 
-      // For now, we terminate the episode if the action is invalid
-      std::vector<sorry::engine::Action> actions = sorry.getActions();
-      if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
-        // This action is invalid, terminate the episode.
-        trajectory.pushStep(gradient, -1.0);
-        break;
+        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
+          std::cout << "Valid actions were:" << std::endl;
+          for (const sorry::engine::Action &a : actions) {
+            std::cout << "  " << a.toString() << std::endl;
+          }
+          throw std::runtime_error("Invalid action after mask "+action.toString());
+        }
+      } else {
+        std::tie(gradient, action) = model.getGradientAndAction(playerHand, playerPiecePositions);
+
+        // Terminate the episode if the action is invalid
+        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
+          // This action is invalid, terminate the episode.
+          trajectory.pushStep(gradient, -1.0);
+          break;
+        }
       }
 
       // Take action in game
-      cout << "Taking action: " << action.toString() << endl;
       sorry.doAction(action, randomEngine);
+      ++actionCount;
 
       float reward;
       if (sorry.gameDone()) {
@@ -101,8 +118,12 @@ void trainReinforce(py::module &jaxModule) {
       // Store the observation into a python-read trajectory data structure
       trajectory.pushStep(gradient, reward);
     }
+    std::cout << "Episode took " << actionCount << " actions" << std::endl;
     // A full trajectory has been generated, now train the model
+    auto startTime = std::chrono::high_resolution_clock::now();
     model.train(trajectory);
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::cout << "Train took " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-startTime).count() << "ms" << std::endl;
 
     if ((i+1)%1000 == 0) {
       cout << "Episode " << i+1 << " complete" << endl;

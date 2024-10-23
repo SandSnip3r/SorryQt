@@ -4,6 +4,7 @@
 #include <sorry/engine/action.hpp>
 
 #include <functional>
+#include <optional>
 #include <vector>
 
 class ActionMap {
@@ -13,16 +14,21 @@ public:
     return instance;
   }
   
-  sorry::engine::Action indexToAction(int index) const;
+  sorry::engine::Action indexToAction(size_t index) const;
+  size_t actionToIndex(sorry::engine::Action action) const;
+  int totalActionCount() const;
 private:
   ActionMap();
 
   struct ActionRange {
-    ActionRange(size_t start, size_t end, std::function<sorry::engine::Action(size_t)> actionGenerator)
-      : start(start), end(end), actionGenerator(actionGenerator) {}
+    using ActionGenerator = std::function<sorry::engine::Action(size_t)>;
+    using IndexGenerator = std::function<std::optional<size_t>(const sorry::engine::Action&)>;
+    ActionRange(size_t start, size_t end, ActionGenerator actionGenerator, IndexGenerator indexGenerator)
+      : start(start), end(end), actionGenerator(actionGenerator), indexGenerator(indexGenerator) {}
     size_t start;
     size_t end;
-    std::function<sorry::engine::Action(size_t)> actionGenerator;
+    ActionGenerator actionGenerator;
+    IndexGenerator indexGenerator;
   };
 
   std::vector<ActionRange> actionRanges_;

@@ -9,19 +9,35 @@ JaxModel::JaxModel(py::module &jaxModule) {
   // Instantiate the MyModel class from Python
   py::object TestClass = jaxModule.attr("TestClass");
   // Create an instance of MyModel
-  modelInstance_ = TestClass();
+  modelInstance_ = TestClass(ActionMap::getInstance().totalActionCount());
 }
 
 void JaxModel::setSeed(int seed) {
   modelInstance_.attr("setSeed")(seed);
 }
 
-std::pair<py::object, sorry::engine::Action> JaxModel::getGradientAndAction(const std::array<sorry::engine::Card, 5> &playerHand, const std::array<int, 4> &playerPiecePositions) {
-  const py::array_t<float> numpyObservation = observationToNumpyArray(playerHand, playerPiecePositions);
+std::pair<py::object, sorry::engine::Action> JaxModel::getGradientAndAction(
+    const std::array<sorry::engine::Card, 5> &playerHand,
+    const std::array<int, 4> &playerPiecePositions,
+    const std::vector<sorry::engine::Action> *validActions) {
+  const py::array_t<float> observation = observationToNumpyArray(playerHand, playerPiecePositions);
+  py::tuple result;
+  if (validActions != nullptr) {
+    // Directly create the action mask for valid actions as a numpy array
+    py::array_t<float> actionMask(ActionMap::getInstance().totalActionCount());
+    // Initialize all values to negative infinity
+    actionMask.attr("fill")(-std::numeric_limits<float>::infinity());
+    for (const sorry::engine::Action &action : *validActions) {
+      const int actionIndex = ActionMap::getInstance().actionToIndex(action);
+      actionMask.mutable_at(actionIndex) = 0.0;
+    }
+    result = modelInstance_.attr("getGradientAndIndex")(observation, actionMask);
+  } else {
+    result = modelInstance_.attr("getGradientAndIndex")(observation);
+  }
   // Take an action according to the policy
-  py::tuple res = modelInstance_.attr("getGradientAndIndex")(numpyObservation);
-  py::object gradient = res[0];
-  int index = res[1].cast<int>();
+  py::object gradient = result[0];
+  int index = result[1].cast<int>();
   return {gradient, ActionMap::getInstance().indexToAction(index)};
 }
 
