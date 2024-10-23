@@ -1,7 +1,7 @@
 #ifndef JAX_MODEL_HPP_
 #define JAX_MODEL_HPP_
 
-#include "jaxTrajectory.hpp"
+#include "trajectory.hpp"
 
 #include <sorry/engine/action.hpp>
 
@@ -18,7 +18,7 @@ public:
       const std::array<int, 4> &playerPiecePositions,
       const std::vector<sorry::engine::Action> *validActions = nullptr);
 
-  void train(const JaxTrajectory &trajectory);
+  void train(const Trajectory &trajectory);
 private:
   pybind11::object modelInstance_;
 

@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from functools import partial
 
 class Trajectory:
   def __init__(self):
@@ -34,6 +35,12 @@ class SorryDenseModel(nnx.Module):
     # Directly return the logits for both sampling (jax.random.categorical takes logits) and calculating probabilities
     return self.linear2(x)
 
+@partial(nnx.jit)
+def compiledUpdate(model, gradient, reward, learningRate):
+  _, params, rest = nnx.split(model, nnx.Param, ...)
+  params = jax.tree.map(lambda p, g: p + learningRate * reward * g, params, gradient)
+  nnx.update(model, nnx.GraphState.merge(params, rest))
+
 class TestClass:
   def __init__(self, actionSpaceSize):
     self.rngs = nnx.Rngs(0, sampleStream=1)
@@ -57,6 +64,9 @@ class TestClass:
   def getGradientAndIndex(self, data, mask):
     ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.sampleStream(), self.model, data, mask)
     return gradient, index
+
+  def update(self, gradient, reward, learningRate):
+    compiledUpdate(self.model, gradient, reward, learningRate)
   
   def train(self, trajectory):
     # Trajectory contains (gradient, reward)

@@ -41,8 +41,17 @@ std::pair<py::object, sorry::engine::Action> JaxModel::getGradientAndAction(
   return {gradient, ActionMap::getInstance().indexToAction(index)};
 }
 
-void JaxModel::train(const JaxTrajectory &trajectory) {
-  modelInstance_.attr("train")(trajectory.getPythonTrajectory());
+void JaxModel::train(const Trajectory &trajectory) {
+  constexpr double kGamma = 0.99;
+  constexpr double kLearningRate = 0.001;
+  double returnToEnd = 0.0;
+  // Iterate backward through the trajectory, calculate the return, and update the parameters.
+  for (int i=trajectory.gradients.size()-1; i>=0; --i) {
+    // Calculate the return
+    returnToEnd = trajectory.rewards[i] + kGamma * returnToEnd;
+    // Update the model parameters
+    modelInstance_.attr("update")(trajectory.gradients[i], returnToEnd, kLearningRate);
+  }
 }
 
 py::array_t<float> JaxModel::observationToNumpyArray(const std::array<sorry::engine::Card, 5> &playerHand,

@@ -18,7 +18,7 @@ set(SRC_FILES
   main.cpp
   actionMap.cpp
   jaxModel.cpp
-  jaxTrajectory.cpp
+  trajectory.cpp
 )
 
 # Build library

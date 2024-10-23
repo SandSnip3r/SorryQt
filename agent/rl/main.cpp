@@ -1,4 +1,5 @@
 #include "jaxModel.hpp"
+#include "trajectory.hpp"
 
 #include <sorry/common/common.hpp>
 #include <sorry/engine/sorry.hpp>
@@ -63,13 +64,15 @@ void trainReinforce(py::module &jaxModule) {
   // Construct Sorry game
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
   // TODO: Color shouldn't matter, I just randomly picked green.
+  Trajectory trajectory;
 
-  // constexpr int kEpisodeCount = 1;
   constexpr int kEpisodeCount = 1'000'000;
   for (int i=0; i<kEpisodeCount; ++i) {
-    // Generate a full trajectory according to the policy
+    auto episodeStartTime = std::chrono::high_resolution_clock::now();
     sorry.reset(randomEngine);
-    JaxTrajectory trajectory(jaxModule);
+    trajectory.reset();
+
+    // Generate a full trajectory according to the policy
     int actionCount = 0;
     while (!sorry.gameDone()) {
       // Get the current observation
@@ -118,12 +121,11 @@ void trainReinforce(py::module &jaxModule) {
       // Store the observation into a python-read trajectory data structure
       trajectory.pushStep(gradient, reward);
     }
-    std::cout << "Episode took " << actionCount << " actions" << std::endl;
     // A full trajectory has been generated, now train the model
-    auto startTime = std::chrono::high_resolution_clock::now();
+    auto trainStartTime = std::chrono::high_resolution_clock::now();
     model.train(trajectory);
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::cout << "Train took " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-startTime).count() << "ms" << std::endl;
+    std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
 
     if ((i+1)%1000 == 0) {
       cout << "Episode " << i+1 << " complete" << endl;
