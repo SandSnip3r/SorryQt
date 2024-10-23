@@ -64,6 +64,8 @@ public:
   *     this is a private position that each player has their own instance of.
   */
   std::array<int, 4> getPiecePositionsForPlayer(PlayerColor playerColor) const;
+
+  // Internally, for any DoubleMove, move1 is always be the shorter move.
   std::vector<Action> getActions() const;
 
   struct Move {
@@ -79,6 +81,8 @@ public:
   bool gameDone() const;
   PlayerColor getWinner() const;
 
+  static int getFirstPosition(PlayerColor playerColor);
+  static int posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance);
 private:
   Sorry(const PlayerColor *playerColors, size_t playerCount);
   struct Player {
@@ -103,8 +107,6 @@ private:
   const Player& currentPlayer() const;
   Player& getPlayer(PlayerColor player);
   const Player& getPlayer(PlayerColor player) const;
-  int posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance) const;
-  int getFirstPosition(PlayerColor playerColor) const;
   static bool playerIsDone(const Player &player);
 
   friend bool operator==(const Sorry &lhs, const Sorry &rhs);

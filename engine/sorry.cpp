@@ -442,7 +442,7 @@ PlayerColor Sorry::getWinner() const {
   return *winner;
 }
 
-int Sorry::getFirstPosition(PlayerColor playerColor) const {
+int Sorry::getFirstPosition(PlayerColor playerColor) {
   // Different color players come out of start to different positions.
   if (playerColor == PlayerColor::kGreen) {
     return 2;
@@ -455,6 +455,50 @@ int Sorry::getFirstPosition(PlayerColor playerColor) const {
   } else {
     throw std::runtime_error("Invalid player");
   }
+}
+
+int Sorry::posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance) {
+  int newPosition = startingPosition + moveDistance;
+  const int lastPublicPos = [&]() {
+    //  Green goes from 60 to 61
+    //    Red goes from 15 to 61
+    //   Blue goes from 30 to 61
+    // Yellow goes from 45 to 61
+    if (playerColor == PlayerColor::kGreen) {
+      return 60;
+    } else if (playerColor == PlayerColor::kRed) {
+      return 15;
+    } else if (playerColor == PlayerColor::kBlue) {
+      return 30;
+    } else if (playerColor == PlayerColor::kYellow) {
+      return 45;
+    } else {
+      throw std::runtime_error("Invalid player");
+    }
+  }();
+  bool inSafeZone{false};
+  if (startingPosition <= lastPublicPos && newPosition > lastPublicPos) {
+    // Moving forward into the safe zone
+    newPosition = newPosition + (60-lastPublicPos);
+    inSafeZone = true;
+  }
+  if (startingPosition >= 61 && newPosition >= 61) {
+    inSafeZone = true;
+  }
+  if (startingPosition >= 61 && newPosition < 61) {
+    // Moving backward out of the safe zone
+    newPosition = newPosition - (60-lastPublicPos);
+  }
+  if (newPosition < 1) {
+    // Wrap around.
+    // ex.  0 becomes 60
+    // ex. -1 becomes 59
+    newPosition += 60;
+  }
+  if (!inSafeZone && newPosition > 60) {
+    newPosition -= 60;
+  }
+  return newPosition;
 }
 
 void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Action> &actions) const {
@@ -509,7 +553,7 @@ void Sorry::addActionsForCard(const Player &player, Card card, std::vector<Actio
   }
   if (card == Card::kSeven) {
     // 7 can have the 7 split across two pieces
-    for (int move1=4; move1<7; ++move1) {
+    for (int move1=1; move1<4; ++move1) {
       int move2 = 7-move1;
       for (size_t piece1Index=0; piece1Index<player.piecePositions.size(); ++piece1Index) {
         for (size_t piece2Index=0; piece2Index<player.piecePositions.size(); ++piece2Index) {
@@ -575,50 +619,6 @@ int Sorry::getIndexOfPieceAtPosition(PlayerColor playerColor, int position) cons
     }
   }
   throw std::runtime_error("Player "+std::string(sorry::engine::toString(playerColor))+" has no piece at position "+std::to_string(position));
-}
-
-int Sorry::posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance) const {
-  int newPosition = startingPosition + moveDistance;
-  const int lastPublicPos = [&]() {
-    //  Green goes from 60 to 61
-    //    Red goes from 15 to 61
-    //   Blue goes from 30 to 61
-    // Yellow goes from 45 to 61
-    if (playerColor == PlayerColor::kGreen) {
-      return 60;
-    } else if (playerColor == PlayerColor::kRed) {
-      return 15;
-    } else if (playerColor == PlayerColor::kBlue) {
-      return 30;
-    } else if (playerColor == PlayerColor::kYellow) {
-      return 45;
-    } else {
-      throw std::runtime_error("Invalid player");
-    }
-  }();
-  bool inSafeZone{false};
-  if (startingPosition <= lastPublicPos && newPosition > lastPublicPos) {
-    // Moving forward into the safe zone
-    newPosition = newPosition + (60-lastPublicPos);
-    inSafeZone = true;
-  }
-  if (startingPosition >= 61 && newPosition >= 61) {
-    inSafeZone = true;
-  }
-  if (startingPosition >= 61 && newPosition < 61) {
-    // Moving backward out of the safe zone
-    newPosition = newPosition - (60-lastPublicPos);
-  }
-  if (newPosition < 1) {
-    // Wrap around.
-    // ex.  0 becomes 60
-    // ex. -1 becomes 59
-    newPosition += 60;
-  }
-  if (!inSafeZone && newPosition > 60) {
-    newPosition -= 60;
-  }
-  return newPosition;
 }
 
 std::optional<int> Sorry::getMoveResultingPos(const Player &player, int pieceIndex, int moveDistance) const {
