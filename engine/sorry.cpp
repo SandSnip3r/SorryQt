@@ -204,6 +204,10 @@ std::vector<Action> Sorry::getActions() const {
   return result;
 }
 
+int Sorry::getFaceDownCardsCount() const {
+  return deck_.size();
+}
+
 std::vector<Sorry::Move> Sorry::getMovesForAction(const Action &action) const {
   if (action.actionType == Action::ActionType::kDiscard) {
     return {};

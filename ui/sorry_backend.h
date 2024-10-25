@@ -125,17 +125,18 @@ class SorryBackend : public QObject {
   QML_SINGLETON
   Q_PROPERTY(ActionsList* actionListModel READ actionListModel NOTIFY actionListModelChanged)
   Q_PROPERTY(int randomSeed READ randomSeed NOTIFY randomSeedChanged)
-  Q_PROPERTY(int moveCount READ moveCount NOTIFY moveCountChanged)
+  Q_PROPERTY(int faceDownCardsCount READ faceDownCardsCount NOTIFY boardStateChanged)
   Q_PROPERTY(int iterationCount READ iterationCount NOTIFY iterationCountChanged)
   Q_PROPERTY(PlayerColor::PlayerColorEnum playerTurn READ playerTurn NOTIFY playerTurnChanged)
   Q_PROPERTY(PlayerType::PlayerTypeEnum playerType READ playerType NOTIFY playerTurnChanged)
+  Q_PROPERTY(QString winner READ winner NOTIFY winnerChanged)
 public:
   explicit SorryBackend(QObject *parent = nullptr);
   ~SorryBackend();
 
   Q_INVOKABLE void resetGame();
   int randomSeed() const { return randomSeed_; }
-  int moveCount() const { return 0; /* sorryState_.getTotalActionCount(); */ }
+  int faceDownCardsCount() const;
   PlayerColor::PlayerColorEnum playerTurn() const;
   PlayerType::PlayerTypeEnum playerType() const;
   Q_INVOKABLE void doActionFromActionList(int index);
@@ -147,6 +148,7 @@ public:
   Q_INVOKABLE QList<MoveForArrow*> getMovesForAction(int index) const;
   ActionsList* actionListModel();
   int iterationCount() const;
+  QString winner() const;
 
 signals:
   void boardStateChanged();
@@ -155,11 +157,13 @@ signals:
   void winRatesChanged(std::vector<double> winRates);
   void iterationCountChanged();
   void randomSeedChanged();
-  void moveCountChanged();
+  void faceDownCardsCountChanged();
   void playerTurnChanged();
   void actionChosen(sorry::engine::Action action);
+  void winnerChanged();
 
 private:
+  bool hiddenHand_{true};
   static constexpr bool kHumanIsMctsAssisted{false};
   std::map<sorry::engine::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
   SorryMcts mcts_{2};

@@ -18,6 +18,7 @@ enum class Card : uint8_t {
   kEleven = 11,
   kTwelve = 12,
   kSorry = 4,
+  kUnknown = 13
 };
 
 std::string toString(Card c);

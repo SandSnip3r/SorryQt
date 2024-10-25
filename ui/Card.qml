@@ -8,7 +8,8 @@ Rectangle {
   radius: width/10
   color: cardColor
   Rectangle {
-    property var whiteWidth: 3
+    id: rectyWecty
+    property var whiteWidth: 3/80.64 * card.width
     width: parent.width - whiteWidth*2
     height: parent.height - whiteWidth*2
     anchors.centerIn: parent
@@ -22,7 +23,7 @@ Rectangle {
       anchors.topMargin: card.width * .02
       anchors.left: parent.left
       anchors.leftMargin: card.width * .08
-      font.pointSize: card.width * .2
+      font.pointSize: Math.max(1, card.width * .2)
     }
   }
 }

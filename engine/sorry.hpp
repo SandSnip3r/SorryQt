@@ -67,6 +67,7 @@ public:
 
   // Internally, for any DoubleMove, move1 is always be the shorter move.
   std::vector<Action> getActions() const;
+  int getFaceDownCardsCount() const;
 
   struct Move {
     PlayerColor playerColor;

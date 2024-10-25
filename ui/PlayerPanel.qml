@@ -13,14 +13,6 @@ Rectangle {
   radius: width * .03
   clip: false
 
-  // function stopAnimation() {
-  //   animation_.running = false
-  //   playerPanel.color = playerPanel.primaryColor
-  // }
-  // function startAnimation() {
-  //   animation_.running = true
-  // }
-
   SequentialAnimation {
     id: animation_
     running: false

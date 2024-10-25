@@ -38,7 +38,10 @@ std::string toString(Card c) {
   if (c == Card::kSorry) {
     return "Sorry";
   }
-  throw std::runtime_error("Invalid card toString");
+  if (c == Card::kUnknown) {
+    return "?";
+  }
+  throw std::runtime_error("toString(Card): Invalid card "+std::to_string(static_cast<int>(c)));
 }
 
 } // namespace sorry::engine

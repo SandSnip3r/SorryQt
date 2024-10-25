@@ -29,7 +29,23 @@ void SorryBackend::initializeGame() {
   // playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kYellow] = PlayerType::Mcts;
 
+  // If no player is human, disable hidden hand
+  if (hiddenHand_ == true) {
+    bool noneAreHuman{true};
+    for (const auto &playerType : playerTypes_) {
+      if (playerType.second == PlayerType::Human || playerType.second == PlayerType::MctsAssistedHuman) {
+        noneAreHuman = false;
+        break;
+      }
+    }
+    if (noneAreHuman) {
+      std::cout << "No player is human, disabling hidden hand" << std::endl;
+    }
+    hiddenHand_ = !noneAreHuman;
+  }
+
   // Emit signals
+  emit winnerChanged();
   emit playerTurnChanged();
   emit boardStateChanged();
   initializeActions();
@@ -55,6 +71,10 @@ void SorryBackend::resetGame() {
   initializeGame();
 }
 
+int SorryBackend::faceDownCardsCount() const {
+  return sorryState_.getFaceDownCardsCount();
+}
+
 PlayerColor::PlayerColorEnum SorryBackend::playerTurn() const {
   if (sorryState_.gameDone()) {
     return PlayerColor::GameOver;
@@ -73,15 +93,17 @@ int SorryBackend::iterationCount() const {
   return lastIterationCount_;
 }
 
+QString SorryBackend::winner() const {
+  if (!sorryState_.gameDone()) {
+    return tr("");
+  }
+  return QString::fromStdString(std::string(sorry::engine::toString(sorryState_.getWinner())));
+}
+
 void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
     const auto actionsAndScores = mcts_.getActionScores();
-    // std::cout << actionsAndScores.size() << " actionScores";
-    // for (const auto &actionScore : actionsAndScores) {
-    //   std::cout << ", " << actionScore.action.toString() << "; " << actionScore.score;
-    // }
-    // std::cout << std::endl;
     emit actionScoresChanged(actionsAndScores);
     const auto winRates = mcts_.getWinRates();
     emit winRatesChanged(winRates);
@@ -102,8 +124,10 @@ void SorryBackend::runMctsAssistant() {
     // MCTS is terminated when the user selects an action. Upon returning from run(), we can immediately reset MCTS.
     mcts_.reset();
   });
-  // Start another thread to periodically get data from mcts.
-  actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
+  if (!hiddenHand_) {
+    // Start another thread to periodically get data from mcts.
+    actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
+  }
 }
 
 void SorryBackend::runMctsAgent() {
@@ -194,13 +218,21 @@ void SorryBackend::doAction(const sorry::engine::Action &action) {
     emit playerTurnChanged();
   }
   emit boardStateChanged();
+  initializeActions();
   if (!sorryState_.gameDone()) {
     initializeActions();
     updateAi();
+  } else {
+    emit playerTurnChanged();
+    emit winnerChanged();
   }
 }
 
 void SorryBackend::initializeActions() {
+  if (hiddenHand_ && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::MctsAssistedHuman) {
+    actionScoresChanged({});
+    return;
+  }
   const auto actions = sorryState_.getActions();
   std::vector<ActionScore> actionScores;
   actionScores.reserve(actions.size());
@@ -232,6 +264,13 @@ QList<int> SorryBackend::getPiecePositionsForPlayer(PlayerColor::PlayerColorEnum
 }
 
 QList<QString> SorryBackend::getCardStringsForPlayer(PlayerColor::PlayerColorEnum playerColor) const {
+  if (hiddenHand_ && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::Human && playerTypes_.at(backendEnumToSorryEnum(playerColor)) != PlayerType::MctsAssistedHuman) {
+    return { QString::fromStdString(toString(sorry::engine::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::engine::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::engine::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::engine::Card::kUnknown)),
+             QString::fromStdString(toString(sorry::engine::Card::kUnknown)) };
+  }
   QList<QString> result;
   const auto hand = sorryState_.getHandForPlayer(backendEnumToSorryEnum(playerColor));
   for (const auto card : hand) {

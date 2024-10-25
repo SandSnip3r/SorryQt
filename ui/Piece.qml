@@ -8,6 +8,6 @@ Rectangle {
   Text {
     text: pieceIndex
     anchors.centerIn: parent
-    font.pointSize: parent.height/2
+    font.pointSize: Math.max(1, parent.height/2)
   }
 }

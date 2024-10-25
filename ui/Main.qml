@@ -286,15 +286,15 @@ Window {
           continue
         }
         for (var i=0; i<positions.length; ++i) {
-          var pos = getPos(player, i, positions[i])
           var piece = pieceRepeater.itemAt(i)
-          if (piece && pos) {
-            piece.x = pos[0]
-            piece.y = pos[1]
-          } else if (!piece) {
-            console.log("Piece ", i, " is null")
-          } else {
-            console.log("Pos is null")
+          if (piece) {
+            var pos = getPos(player, i, positions[i])
+            if (pos) {
+              piece.x = pos[0]
+              piece.y = pos[1]
+            } else {
+              console.log("Pos is null")
+            }
           }
         }
 
@@ -388,6 +388,7 @@ Window {
     Connections {
       target: SorryBackend
       function onBoardStateChanged() {
+        canvas.resetMoveGroups()
         board.display()
       }
 
@@ -407,7 +408,7 @@ Window {
       height: parent.height * 0.04
       Text {
         text: "Reset Game"
-        font.pointSize: parent.height * .5
+        font.pointSize: Math.max(1, parent.height * .5)
         anchors.centerIn: parent
       }
       onClicked: {
@@ -429,6 +430,47 @@ Window {
                             "Yellow:" + (winRates[3]*100).toFixed(2) + "%"
       }
     }
+    Row {
+      id: deckCardRow
+      anchors.bottom: resetButton.top
+      anchors.bottomMargin: board.height * 0.01
+      anchors.left: resetButton.left
+      anchors.leftMargin: -board.width * 0.02
+      property var deckCardWidth: board.width * 0.05
+      spacing: -deckCardWidth * 0.9
+      Repeater {
+        model: SorryBackend.faceDownCardsCount
+        Card {
+          id: deckCard
+          width: deckCardRow.deckCardWidth
+          height: deckCardRow.deckCardWidth * 7/4
+          cardText: ""
+          Text {
+            anchors.centerIn: parent
+            text: SorryBackend.faceDownCardsCount
+            font.pointSize: Math.max(1, deckCardRow.deckCardWidth * .5)
+          }
+        }
+      }
+    }
+
+    Rectangle {
+      id: winnerRect
+      anchors.top: resetButton.bottom
+      anchors.horizontalCenter: board.horizontalCenter
+      width: board.width * 0.35
+      height: width / 2
+      radius: width * .03
+      border.color: "black"
+      border.width: width * 0.02
+      color: "#FFBB00"
+      visible: SorryBackend.playerTurn == PlayerColor.GameOver
+      Text {
+        anchors.centerIn: parent
+        text: SorryBackend.winner + " wins!"
+        font.pointSize: Math.max(1, winnerRect.height * 0.2)
+      }
+    }
   }
 
   Rectangle {
@@ -445,7 +487,7 @@ Window {
       color: "white"
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
-      font.pointSize: Math.min(parent.width * .05, parent.height * .5)
+      font.pointSize: Math.max(1, Math.min(parent.width * .05, parent.height * .5))
     }
   }
 
@@ -507,7 +549,7 @@ Window {
   }
 
   Rectangle {
-    id: newActionsPane
+    id: actionsPane
     anchors.right: parent.right
     anchors.top: parent.top
     anchors.bottom: parent.bottom
@@ -520,7 +562,7 @@ Window {
       model: SorryBackend.actionListModel
       delegate: Rectangle {
           id: actionButton
-          width: newActionsPane.width
+          width: actionsPane.width
           height: width * .1
           color: "black"
           border.color: "white"
