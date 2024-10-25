@@ -50,11 +50,16 @@ void simulateRandomGames() {
 
 namespace py = pybind11;
 
-void trainReinforce(py::module &jaxModule) {
+void trainReinforce() {
+  // Load the Python module
+  py::module myJax = py::module::import("my_jax");
+  py::module tensorboardX = py::module::import("tensorboardX");
+  py::object summaryWriter = tensorboardX.attr("SummaryWriter")();
+
   constexpr bool kUseActionMasking{true};
 
   // Initialize python module/model
-  JaxModel model(jaxModule);
+  JaxModel model(myJax);
 
   // Seed all random engines
   constexpr int kSeed = 0x5EED;
@@ -125,10 +130,14 @@ void trainReinforce(py::module &jaxModule) {
     auto trainStartTime = std::chrono::high_resolution_clock::now();
     model.train(trajectory);
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
+    // std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
+    summaryWriter.attr("add_scalar")("episode/action_count", actionCount, i);
 
-    if ((i+1)%1000 == 0) {
-      cout << "Episode " << i+1 << " complete" << endl;
+    if ((i+1)%100 == 0) {
+      cout << "Episode " << i << " complete" << endl;
+      if ((i+1)%1000 == 0) {
+        model.saveCheckpoint();
+      }
     }
   }
 }
@@ -143,9 +152,6 @@ int main() {
   // Append the directory containing my_jax.py to sys.path, SOURCE_DIR is set from CMake.
   sys.attr("path").cast<py::list>().append(std::string(SOURCE_DIR));
 
-  // Load the Python module
-  py::module jax_module = py::module::import("my_jax");
-
-  trainReinforce(jax_module);
+  trainReinforce();
   return 0;
 }

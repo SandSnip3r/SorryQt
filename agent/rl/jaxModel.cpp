@@ -54,6 +54,10 @@ void JaxModel::train(const Trajectory &trajectory) {
   }
 }
 
+void JaxModel::saveCheckpoint() {
+  modelInstance_.attr("saveCheckpoint")();
+}
+
 py::array_t<float> JaxModel::observationToNumpyArray(const std::array<sorry::engine::Card, 5> &playerHand,
                                           const std::array<int, 4> &playerPiecePositions) const {
   auto printBuffer = [](const auto &buffer) {

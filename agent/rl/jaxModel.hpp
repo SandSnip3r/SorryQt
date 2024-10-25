@@ -19,6 +19,7 @@ public:
       const std::vector<sorry::engine::Action> *validActions = nullptr);
 
   void train(const Trajectory &trajectory);
+  void saveCheckpoint();
 private:
   pybind11::object modelInstance_;
 

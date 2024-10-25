@@ -1,5 +1,7 @@
 import jax
 import jax.numpy as jnp
+import orbax.checkpoint as ocp
+import os
 from flax import nnx
 from functools import partial
 
@@ -45,7 +47,9 @@ class TestClass:
   def __init__(self, actionSpaceSize):
     self.rngs = nnx.Rngs(0, sampleStream=1)
     self.model = SorryDenseModel(rngs=self.rngs, actionSpaceSize=actionSpaceSize)
-    self.learningRate = 0.01
+    checkpointDir = os.path.join(os.getcwd(), 'checkpoints')
+    self.checkpointDirectory = ocp.test_utils.erase_and_create_empty(checkpointDir)
+    self.checkpointer = ocp.StandardCheckpointer()
 
     def getProbabilityAndIndex(key, model, data, mask):
       logits = model(data)
@@ -68,30 +72,7 @@ class TestClass:
   def update(self, gradient, reward, learningRate):
     compiledUpdate(self.model, gradient, reward, learningRate)
   
-  def train(self, trajectory):
-    # Trajectory contains (gradient, reward)
-    def computeReturns(episode_data, gamma=0.99):
-      returns = []
-      G = 0
-      for _, reward in reversed(episode_data):
-        G = reward + gamma * G
-        returns.insert(0, G)
-      return jnp.asarray(returns)
-
-    # Compute the returns
-    returns = computeReturns(trajectory)
-    # Extract the gradients from the trajectory
-    gradients = [grad for grad, _ in trajectory]
-
-    def f(model, gradients, returns):
-      # Calculate the REINFORCE updates, one for each timestep in the trajectory
-      index = 0
-      for gradient, returnValue in zip(gradients, returns):
-        # Update the model parameters.
-        # Since we're using jax.grad and non nnx.grad, we need to use the NNX split/merge API
-        _, params, rest = nnx.split(model, nnx.Param, ...)
-        params = jax.tree.map(lambda p, g: p + self.learningRate * returnValue * g, params, gradient)
-        nnx.update(model, nnx.GraphState.merge(params, rest))
-        index += 1
-
-    f(self.model, gradients, returns)
+  def saveCheckpoint(self):
+    _, state = nnx.split(self.model)
+    self.checkpointer.save(self.checkpointDirectory/'latest', state, force=True)
+    print(f'Saved checkpoint at {self.checkpointDirectory/"latest"}')
