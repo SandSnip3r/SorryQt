@@ -152,16 +152,22 @@ std::vector<double> SorryMcts::getWinRates() const {
   if (rootNode_ == nullptr) {
     return { 0.25, 0.25, 0.25, 0.25 };
   }
-  const double sum = rootNode_->winCount[0] + rootNode_->winCount[1] + rootNode_->winCount[2] + rootNode_->winCount[3];
+  if (rootNode_->successors.empty()) {
+    return { 0.25, 0.25, 0.25, 0.25 };
+  }
+  std::vector<size_t> indices(rootNode_->successors.size());
+  std::iota(indices.begin(), indices.end(), 0);
+  const int indexOfPreferredAction = select(rootNode_, false, indices);
+  Node *preferredAction = rootNode_->successors.at(indexOfPreferredAction);
+  const double sum = preferredAction->winCount[0] + preferredAction->winCount[1] + preferredAction->winCount[2] + preferredAction->winCount[3];
   if (sum == 0) {
     return { 0.25, 0.25, 0.25, 0.25 };
   }
-  return { rootNode_->winCount[0] / sum,
-           rootNode_->winCount[1] / sum,
-           rootNode_->winCount[2] / sum,
-           rootNode_->winCount[3] / sum };
-};
-
+  return { preferredAction->winCount[0] / sum,
+           preferredAction->winCount[1] / sum,
+           preferredAction->winCount[2] / sum,
+           preferredAction->winCount[3] / sum };
+}
 
 int SorryMcts::getIterationCount() const {
   std::unique_lock lock(treeMutex_);
@@ -169,19 +175,26 @@ int SorryMcts::getIterationCount() const {
 }
 
 void SorryMcts::doSingleStep(const sorry::engine::Sorry &startingState) {
+  constexpr int kDepthOfConcreteHands{1};
   sorry::engine::Sorry state = startingState;
   std::unique_lock lock(treeMutex_);
   Node *currentNode = rootNode_;
+  // Depth represents how many times a player's turn has changed.
+  int depth=0;
   while (!state.gameDone()) {
+    if (depth < kDepthOfConcreteHands) {
+      state.giveOpponentsRandomHands(eng_);
+    }
     // Get all actions.
     const auto actions = state.getActions();
+    const sorry::engine::PlayerColor currentPlayer = state.getPlayerTurn();
     bool rolledOut=false;
     std::vector<size_t> indices;
     for (const sorry::engine::Action &action : actions) {
       // If we don't yet have a node for this action, select it.
       bool foundOurAction = false;
       for (size_t i=0; i<currentNode->successors.size(); ++i) {
-        if (currentNode->successors.at(i)->state == state &&
+        if (currentNode->successors.at(i)->state.equalForPlayer(state, ourPlayer_) &&
             currentNode->successors.at(i)->action == action) {
           // This is our action.
           indices.push_back(i);
@@ -214,6 +227,9 @@ void SorryMcts::doSingleStep(const sorry::engine::Sorry &startingState) {
     int index = select(currentNode, /*withExploration=*/true, indices);
     currentNode = currentNode->successors.at(index);
     state.doAction(currentNode->action, eng_);
+    if (state.getPlayerTurn() != currentPlayer) {
+      ++depth;
+    }
   }
   // Game is done.
   backprop(currentNode, state.getWinner());
@@ -240,7 +256,7 @@ sorry::engine::PlayerColor SorryMcts::rollout(sorry::engine::Sorry state) {
       throw std::runtime_error("No actions to take");
     }
     std::uniform_int_distribution<int> dist(0, actions.size()-1);
-    const auto action = actions[dist(eng_)];
+    const auto &action = actions.at(dist(eng_));
     state.doAction(action, eng_);
   }
   // Game is over.

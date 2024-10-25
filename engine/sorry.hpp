@@ -40,8 +40,10 @@ public:
   // void setStartingCards(PlayerColor playerColor, const std::array<Card,5> &cards);
   void setStartingPositions(PlayerColor playerColor, const std::array<int, 4> &positions);
   void setTurn(PlayerColor playerColor);
+  void giveOpponentsRandomHands(std::mt19937 &eng);
 
   std::string toString() const;
+  std::string toStringForCurrentPlayer() const;
   std::string handToString() const;
 
   std::vector<PlayerColor> getPlayers() const;
@@ -82,16 +84,27 @@ public:
   bool gameDone() const;
   PlayerColor getWinner() const;
 
+  // An equality comparison which does not look at other players' hands.
+  bool equalForPlayer(const Sorry &other, PlayerColor playerColor) const;
+
   static int getFirstPosition(PlayerColor playerColor);
   static int posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance);
 private:
   Sorry(const PlayerColor *playerColors, size_t playerCount);
   struct Player {
+    using HandType = std::array<Card,5>;
     PlayerColor playerColor;
-    std::array<Card,5> hand;
     std::array<int, 4> piecePositions;
     size_t indexOfCardInHand(Card card) const;
-    std::string toString() const;
+    std::string toString(bool showHand) const;
+    bool handsAreSame(const Player &otherPlayer) const;
+    bool piecePositionsAreSame(const Player &otherPlayer) const;
+    void setHand(const std::array<Card, 5> &cards);
+    void drawNewCard(Card newCard, size_t oldCardIndex);
+    const HandType& getHand() const { return hand; }
+  private:
+    // Note: Hand is kept sorted so that comparisons are faster
+    HandType hand;
   };
   std::vector<Player> players_;
   bool resetCalledAtLeastOnce_{false};

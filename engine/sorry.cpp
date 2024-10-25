@@ -63,12 +63,14 @@ void Sorry::reset(std::mt19937 &eng) {
 
   // Draw starting cards for each player
   for (Player &player : players_) {
-    for (size_t i=0; i<player.hand.size(); ++i) {
-      player.hand.at(i) = deck_.drawRandomCard(eng);
+    Player::HandType startingHand;
+    for (size_t i=0; i<startingHand.size(); ++i) {
+      startingHand[i] = deck_.drawRandomCard(eng);
       if (deck_.empty()) {
         throw std::runtime_error("Drew too many cards");
       }
     }
+    player.setHand(startingHand);
   }
   resetCalledAtLeastOnce_ = true;
 }
@@ -111,6 +113,36 @@ void Sorry::setTurn(PlayerColor playerColor) {
   }
 }
 
+void Sorry::giveOpponentsRandomHands(std::mt19937 &eng) {
+  Deck tmpDeck = deck_;
+  const auto &selfPlayer = currentPlayer();
+  // Discard all of our cards.
+  for (Card card : selfPlayer.getHand()) {
+    tmpDeck.discard(card);
+  }
+  // Draw cards for opponents from both the facedown cards and the "out" cards (which now does not include our cards). This effectively gives each opponent a random hand from the possibilities
+  for (Player &player : players_) {
+    if (player.playerColor == selfPlayer.playerColor) {
+      continue;
+    }
+    std::array<Card, 5> newHand;
+    for (size_t i=0; i<newHand.size(); ++i) {
+      Card card = tmpDeck.drawRandomCardAlsoFromOut(eng);
+      newHand[i] = card;
+    }
+    player.setHand(newHand);
+  }
+
+  Deck newDeck;
+  for (const Player &player : players_) {
+    const auto &playerHand = player.getHand();
+    for (size_t i=0; i<playerHand.size(); ++i) {
+      newDeck.removeSpecificCard(playerHand[i]);
+    }
+  }
+  deck_ = newDeck;
+}
+
 std::string Sorry::toString() const {
   if (!resetCalledAtLeastOnce_) {
     throw std::runtime_error("Called toString() without starting hands set");
@@ -119,7 +151,25 @@ std::string Sorry::toString() const {
   ss << '{';
   ss << "Deck:" << deck_.size();
   for (const auto &player : players_) {
-    ss << ',' << player.toString();
+    ss << ',' << player.toString(/*showHand=*/true);
+  }
+  ss << '}';
+  return ss.str();
+}
+
+std::string Sorry::toStringForCurrentPlayer() const {
+  if (!resetCalledAtLeastOnce_) {
+    throw std::runtime_error("Called toString() without starting hands set");
+  }
+  std::stringstream ss;
+  ss << '{';
+  ss << "Deck:" << deck_.size();
+  for (const auto &player : players_) {
+    if (player.playerColor == getPlayerTurn()) {
+      ss << ',' << player.toString(/*showHand=*/true);
+    } else {
+      ss << ',' << player.toString(/*showHand=*/false);
+    }
   }
   ss << '}';
   return ss.str();
@@ -141,7 +191,7 @@ std::string Sorry::handToString() const {
 }
 
 std::array<Card,5> Sorry::getHandForPlayer(PlayerColor playerColor) const {
-  return getPlayer(playerColor).hand;
+  return getPlayer(playerColor).getHand();
 }
 
 std::array<int, 4> Sorry::getPiecePositionsForPlayer(PlayerColor playerColor) const {
@@ -170,7 +220,7 @@ std::vector<Action> Sorry::getActions() const {
   std::vector<Action> result;
   result.reserve(20); // Save some time by doing one allocation large enough for most invocations.
   const auto &currentPlayerData = currentPlayer();
-  const auto &currentPlayerHand = currentPlayerData.hand;
+  const auto &currentPlayerHand = currentPlayerData.getHand();
   for (size_t i=0; i<currentPlayerHand.size(); ++i) {
     bool alreadyHandledThisCard = false;
     for (int j=static_cast<int>(i)-1; j>=0; --j) {
@@ -409,7 +459,7 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
     deck_.discard(action.card);
   }
   int oldCardIndex = player.indexOfCardInHand(action.card);
-  player.hand.at(oldCardIndex) = newCard;
+  player.drawNewCard(newCard, oldCardIndex);
 
   // Advance the player turn.
   const bool anotherTurn = action.card == Card::kTwo &&
@@ -444,6 +494,33 @@ PlayerColor Sorry::getWinner() const {
     throw std::runtime_error("No player won");
   }
   return *winner;
+}
+
+bool Sorry::equalForPlayer(const Sorry &other, PlayerColor playerColor) const {
+  if (players_.size() != other.players_.size()) {
+    throw std::runtime_error("Should not be comparing games with different player counts");
+    return false;
+  }
+  if (!deck_.equalDiscarded(other.deck_)) {
+    return false;
+  }
+  for (size_t playerIndex=0; playerIndex<players_.size(); ++playerIndex) {
+    const sorry::engine::Sorry::Player &thisPlayer = players_.at(playerIndex);
+    const sorry::engine::Sorry::Player &otherPlayer = other.players_.at(playerIndex);
+    if (thisPlayer.playerColor != otherPlayer.playerColor) {
+      throw std::runtime_error("Should not be comparing games with different order of players");
+    }
+    if (thisPlayer.playerColor == playerColor) {
+      // Only do hand comparison for the given player.
+      if (!thisPlayer.handsAreSame(otherPlayer)) {
+        return false;
+      }
+    }
+    if (!thisPlayer.piecePositionsAreSame(otherPlayer)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 int Sorry::getFirstPosition(PlayerColor playerColor) {
@@ -866,21 +943,17 @@ bool operator==(const sorry::engine::Sorry &lhs, const sorry::engine::Sorry &rhs
   if (lhs.players_.size() != rhs.players_.size()) {
     return false;
   }
-  if (!(lhs.deck_ == rhs.deck_)) {
+  if (!(lhs.deck_.equalDiscarded(rhs.deck_))) {
     return false;
   }
   for (size_t playerIndex=0; playerIndex<lhs.players_.size(); ++playerIndex) {
     const sorry::engine::Sorry::Player &lhsPlayer = lhs.players_.at(playerIndex);
     const sorry::engine::Sorry::Player &rhsPlayer = rhs.players_.at(playerIndex);
-    for (size_t i=0; i<lhsPlayer.hand.size(); ++i) {
-      if (lhsPlayer.hand[i] != rhsPlayer.hand[i]) {
-        return false;
-      }
+    if (!lhsPlayer.handsAreSame(rhsPlayer)) {
+      return false;
     }
-    for (size_t i=0; i<lhsPlayer.piecePositions.size(); ++i) {
-      if (lhsPlayer.piecePositions[i] != rhsPlayer.piecePositions[i]) {
-        return false;
-      }
+    if (!lhsPlayer.piecePositionsAreSame(rhsPlayer)) {
+      return false;
     }
   }
   return true;
@@ -896,11 +969,12 @@ size_t Sorry::Player::indexOfCardInHand(Card card) const {
   throw std::runtime_error("Card "+sorry::engine::toString(card)+" not in hand");
 }
 
-std::string Sorry::Player::toString() const {
+std::string Sorry::Player::toString(bool showHand) const {
   std::stringstream ss;
   ss << '(' << sorry::engine::toString(playerColor) << ':';
   for (size_t i=0; i<hand.size(); ++i) {
-    ss << sorry::engine::toString(hand[i]);
+    const Card card = showHand ? hand[i] : Card::kUnknown;
+    ss << sorry::engine::toString(card);
     if (i != hand.size()-1) {
       ss << ',';
     }
@@ -914,6 +988,46 @@ std::string Sorry::Player::toString() const {
   }
   ss << ')';
   return ss.str();
+}
+
+bool Sorry::Player::handsAreSame(const Player &otherPlayer) const {
+  for (size_t i=0; i<hand.size(); ++i) {
+    if (hand[i] != otherPlayer.hand[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Sorry::Player::piecePositionsAreSame(const Player &otherPlayer) const {
+  for (size_t i=0; i<piecePositions.size(); ++i) {
+    if (piecePositions[i] != otherPlayer.piecePositions[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void Sorry::Player::setHand(const std::array<Card, 5> &cards) {
+  hand = cards;
+  std::sort(hand.begin(), hand.end());
+}
+
+void Sorry::Player::drawNewCard(Card newCard, size_t oldCardIndex) {
+  if (oldCardIndex < 0 || oldCardIndex >= hand.size()) {
+    throw std::runtime_error("Card index out out bounds");
+  }
+  hand[oldCardIndex] = newCard;
+  while (oldCardIndex > 0 && hand[oldCardIndex-1] > hand[oldCardIndex]) {
+    // Bubble down.
+    std::swap(hand[oldCardIndex-1], hand[oldCardIndex]);
+    --oldCardIndex;
+  }
+  while (oldCardIndex < hand.size()-1 && hand[oldCardIndex] > hand[oldCardIndex+1]) {
+    // Bubble up.
+    std::swap(hand[oldCardIndex], hand[oldCardIndex+1]);
+    ++oldCardIndex;
+  }
 }
 
 } // namespace sorry::engine

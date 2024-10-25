@@ -48,6 +48,13 @@ void Deck::discard(Card card) {
       // Found our card, move it to the discard pile.
       std::swap(cards_.at(i), cards_.at(firstDiscardIndex_-1));
       --firstDiscardIndex_;
+
+      // Bubble-up card so that discarded cards remain sorted
+      size_t tmpIndex = firstDiscardIndex_;
+      while (tmpIndex < cards_.size()-1 && cards_[tmpIndex] > cards_[tmpIndex+1]) {
+        std::swap(cards_[tmpIndex], cards_[tmpIndex+1]);
+        ++tmpIndex;
+      }
       return;
     }
   }
@@ -63,6 +70,15 @@ bool Deck::empty() const {
   return firstOutIndex_ == 0;
 }
 
+void Deck::shuffle() {
+  // Move everything from the discarded range to the end of the live range, shifting over the "out" range
+  while (firstDiscardIndex_ < cards_.size()) {
+    std::swap(cards_.at(firstOutIndex_), cards_.at(firstDiscardIndex_));
+    ++firstOutIndex_;
+    ++firstDiscardIndex_;
+  }
+}
+
 void Deck::removeCard(size_t index) {
   std::swap(cards_.at(index), cards_.at(firstOutIndex_-1));
   --firstOutIndex_;
@@ -74,34 +90,35 @@ void Deck::print() const {
   }
   int i1 = (firstOutIndex_-1) * 3 + 2;
   int i2 = (firstDiscardIndex_-1) * 3 + 2;
-  std::cout << std::string(i1, ' ') << '^' << std::string(i2-i1-1, ' ') << '^' << std::endl;
+  std::cout << '\n';
+  if (i1 > 0) {
+    std::cout << std::string(i1, ' ') << '^';
+  }
+  if (i2 > i1) {
+    std::cout << std::string(i2-i1-1, ' ') << '^';
+  }
+  std::cout << std::endl;
 }
 
-void Deck::shuffle() {
-  // Move everything from the discarded range to the end of the live range, shifting over the "out" range
-  while (firstDiscardIndex_ < cards_.size()) {
-    std::swap(cards_.at(firstOutIndex_), cards_.at(firstDiscardIndex_));
-    ++firstOutIndex_;
-    ++firstDiscardIndex_;
+Card Deck::drawRandomCardAlsoFromOut(std::mt19937 &eng) {
+  // Note, this discards the card too.
+  std::uniform_int_distribution<size_t> dist(0, firstDiscardIndex_-1);
+  const size_t drawnCardIndex = dist(eng);
+  Card card = cards_[drawnCardIndex];
+  std::swap(cards_.at(drawnCardIndex), cards_.at(firstDiscardIndex_-1));
+  --firstDiscardIndex_;
+  if (firstOutIndex_ > firstDiscardIndex_) {
+    --firstOutIndex_;
   }
+  return card;
 }
 
-bool operator==(const sorry::engine::Deck &lhs, const sorry::engine::Deck &rhs) {
-  if (lhs.firstOutIndex_ != rhs.firstOutIndex_) {
+bool Deck::equalDiscarded(const Deck &other) const {
+  if (firstDiscardIndex_ != other.firstDiscardIndex_) {
     return false;
   }
-  if (lhs.firstDiscardIndex_ != rhs.firstDiscardIndex_) {
-    return false;
-  }
-  // Check the face-down deck is the same
-  for (size_t i=0; i<lhs.firstOutIndex_; ++i) {
-    if (lhs.cards_[i] != rhs.cards_[i]) {
-      return false;
-    }
-  }
-  // Check the discard pile is the same
-  for (size_t i=lhs.firstDiscardIndex_; i<lhs.cards_.size(); ++i) {
-    if (lhs.cards_[i] != rhs.cards_[i]) {
+  for (size_t i=firstDiscardIndex_; i<cards_.size(); ++i) {
+    if (cards_[i] != other.cards_[i]) {
       return false;
     }
   }
