@@ -1,4 +1,6 @@
-#include "jaxModel.hpp"
+#include "actionMap.hpp"
+#include "common.hpp"
+#include "trainingUtil.hpp"
 #include "trajectory.hpp"
 
 #include <sorry/common/common.hpp>
@@ -52,19 +54,19 @@ namespace py = pybind11;
 
 void trainReinforce() {
   // Load the Python module
-  py::module myJax = py::module::import("my_jax");
+  py::module jaxModule = py::module::import("jaxModule");
   py::module tensorboardX = py::module::import("tensorboardX");
   py::object summaryWriter = tensorboardX.attr("SummaryWriter")();
 
   constexpr bool kUseActionMasking{true};
 
   // Initialize python module/model
-  JaxModel model(myJax);
+  TrainingUtil trainingUtil(jaxModule);
 
   // Seed all random engines
   constexpr int kSeed = 0x5EED;
   std::mt19937 randomEngine{kSeed};
-  model.setSeed(kSeed);
+  trainingUtil.setSeed(kSeed);
 
   // Construct Sorry game
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
@@ -80,18 +82,12 @@ void trainReinforce() {
     // Generate a full trajectory according to the policy
     int actionCount = 0;
     while (!sorry.gameDone()) {
-      // Get the current observation
-      std::array<sorry::engine::Card, 5> playerHand = sorry.getHandForPlayer(sorry.getPlayerTurn());
-      std::array<int, 4> playerPiecePositions = sorry.getPiecePositionsForPlayer(sorry.getPlayerTurn());
-      // TODO: For now, we're not going to bother with the discarded cards.
-      // std::vector<sorry::engine::Card> discardedCards = sorry.getDiscardedCards();
-
       const std::vector<sorry::engine::Action> actions = sorry.getActions();
       py::object gradient;
       sorry::engine::Action action;
       if constexpr (kUseActionMasking) {
         // Take an action according to the policy, masked by the valid actions
-        std::tie(gradient, action) = model.getGradientAndAction(playerHand, playerPiecePositions, &actions);
+        std::tie(gradient, action) = trainingUtil.getGradientAndAction(sorry, &actions);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Valid actions were:" << std::endl;
@@ -101,7 +97,7 @@ void trainReinforce() {
           throw std::runtime_error("Invalid action after mask "+action.toString());
         }
       } else {
-        std::tie(gradient, action) = model.getGradientAndAction(playerHand, playerPiecePositions);
+        std::tie(gradient, action) = trainingUtil.getGradientAndAction(sorry);
 
         // Terminate the episode if the action is invalid
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
@@ -128,7 +124,7 @@ void trainReinforce() {
     }
     // A full trajectory has been generated, now train the model
     auto trainStartTime = std::chrono::high_resolution_clock::now();
-    model.train(trajectory);
+    trainingUtil.train(trajectory);
     auto endTime = std::chrono::high_resolution_clock::now();
     // std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
     summaryWriter.attr("add_scalar")("episode/action_count", actionCount, i);
@@ -136,9 +132,44 @@ void trainReinforce() {
     if ((i+1)%100 == 0) {
       cout << "Episode " << i << " complete" << endl;
       if ((i+1)%1000 == 0) {
-        model.saveCheckpoint();
+        trainingUtil.saveCheckpoint();
       }
     }
+  }
+}
+
+void loadModel() {
+  py::module jaxModule = py::module::import("jaxModule");
+  py::object InferenceClass = jaxModule.attr("InferenceClass");
+  py::object inferenceInstance = InferenceClass(ActionMap::getInstance().totalActionCount());
+
+  // Seed all random engines
+  constexpr int kSeed = 0x5EED;
+  std::mt19937 randomEngine{kSeed};
+  inferenceInstance.attr("setSeed")(kSeed);
+
+  sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
+  sorry.reset(randomEngine);
+  while (!sorry.gameDone()) {
+    // Create the observation
+    py::object observation = common::makeNumpyObservation(sorry);
+
+    // Create the action mask for valid actions as a numpy array
+    py::array_t<float> actionMask(ActionMap::getInstance().totalActionCount());
+    // Initialize all values to negative infinity
+    actionMask.attr("fill")(-std::numeric_limits<float>::infinity());
+    const std::vector<sorry::engine::Action> validActions = sorry.getActions();
+    for (const sorry::engine::Action &action : validActions) {
+      const int actionIndex = ActionMap::getInstance().actionToIndex(action);
+      actionMask.mutable_at(actionIndex) = 0.0;
+    }
+
+    py::object index = inferenceInstance.attr("getActionIndexForState")(observation, actionMask);
+    int actionIndex = index.cast<int>();
+    const sorry::engine::Action action = ActionMap::getInstance().indexToAction(actionIndex);
+    cout << sorry.toString() << endl;
+    cout << "Want to take action " << action.toString() << endl;
+    sorry.doAction(action, randomEngine);
   }
 }
 
@@ -152,6 +183,8 @@ int main() {
   // Append the directory containing my_jax.py to sys.path, SOURCE_DIR is set from CMake.
   sys.attr("path").cast<py::list>().append(std::string(SOURCE_DIR));
 
-  trainReinforce();
+  // trainReinforce();
+
+  loadModel();
   return 0;
 }
