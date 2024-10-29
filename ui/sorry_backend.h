@@ -31,7 +31,8 @@ public:
     Human,
     Mcts,
     MctsAssistedHuman,
-    Rl
+    Rl,
+    RlAssistedHuman,
   };
   Q_ENUM(PlayerTypeEnum);
 };
@@ -200,6 +201,7 @@ private:
   void terminateThreads();
   void runMctsAgent();
   void runRlAgent();
+  void runRlAgentAssistant();
   void doActionAsAgent(const sorry::engine::Action &action);
   void doAction(const sorry::engine::Action &action);
 

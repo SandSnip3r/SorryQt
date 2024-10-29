@@ -617,7 +617,9 @@ Window {
             hoverEnabled: true
 
             onClicked: {
-              if (SorryBackend.playerType == PlayerType.Mcts) {
+              if (!(SorryBackend.playerType == PlayerType.Human ||
+                    SorryBackend.playerType == PlayerType.MctsAssistedHuman ||
+                    SorryBackend.playerType == PlayerType.RlAssistedHuman)) {
                 // Cannot take action for bot
                 return
               }
@@ -640,7 +642,8 @@ Window {
               }
 
               if (!(SorryBackend.playerType == PlayerType.Human ||
-                    SorryBackend.playerType == PlayerType.MctsAssistedHuman)) {
+                    SorryBackend.playerType == PlayerType.MctsAssistedHuman ||
+                    SorryBackend.playerType == PlayerType.RlAssistedHuman)) {
                 // Only draw actions for human players when an action is entered
                 return
               }
@@ -662,7 +665,8 @@ Window {
               }
 
               if (!(SorryBackend.playerType == PlayerType.Human ||
-                    SorryBackend.playerType == PlayerType.MctsAssistedHuman)) {
+                    SorryBackend.playerType == PlayerType.MctsAssistedHuman ||
+                    SorryBackend.playerType == PlayerType.RlAssistedHuman)) {
                 // Only draw actions for human players when an action is entered
                 return
               }

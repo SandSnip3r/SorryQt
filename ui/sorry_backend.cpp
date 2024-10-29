@@ -47,7 +47,7 @@ void SorryBackend::initializeGame() {
   rlAgent_ = new sorry::agent::ReinforceAgent();
   rlAgent_->seed(randomSeed_);
 
-  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Rl;
+  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::RlAssistedHuman;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
   // playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
@@ -89,8 +89,9 @@ void SorryBackend::updateAi() {
     // Run assistive mcts.
     runMctsAssistant();
   } else if (playerType == PlayerType::Rl) {
-    std::cout << "Running agent" << std::endl;
     runRlAgent();
+  } else if (playerType == PlayerType::RlAssistedHuman) {
+    runRlAgentAssistant();
   }
 }
 
@@ -185,12 +186,18 @@ void SorryBackend::runRlAgent() {
     rlAgent_->run(sorryState_);
     const std::vector<sorry::agent::ActionScore> actionsAndScores = rlAgent_->getActionScores();
     emit actionScoresChanged(actionsAndScores);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     const sorry::engine::Action bestAction = rlAgent_->pickBestAction();
     emit actionChosen(bestAction);
     PyGILState_Release(gstate);
     PyEval_RestoreThread(savedThreadState_);
   });
+}
+
+void SorryBackend::runRlAgentAssistant() {
+  rlAgent_->run(sorryState_);
+  const std::vector<sorry::agent::ActionScore> actionsAndScores = rlAgent_->getActionScores();
+  emit actionScoresChanged(actionsAndScores);
 }
 
 void SorryBackend::terminateThreads() {
