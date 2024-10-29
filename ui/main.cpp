@@ -3,7 +3,13 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 
+#pragma push_macro("slots")
+#undef slots
+#include <pybind11/embed.h>
+#pragma pop_macro("slots")
+
 int main(int argc, char *argv[]) {
+  pybind11::scoped_interpreter guard;
   QGuiApplication app(argc, argv);
 
   QQmlApplicationEngine engine;

@@ -44,8 +44,10 @@ set_target_properties(appSorry PROPERTIES
 )
 
 target_link_libraries(appSorry
-  PRIVATE Qt6::Quick
+  PRIVATE
+  Qt6::Quick
   sorry::agent::mcts
+  sorry::agent::rl
   sorry::common
   sorry::engine
 )

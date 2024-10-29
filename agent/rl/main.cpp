@@ -138,6 +138,7 @@ void trainReinforce() {
   }
 }
 
+
 void loadModel() {
   py::module jaxModule = py::module::import("jaxModule");
   py::object InferenceClass = jaxModule.attr("InferenceClass");

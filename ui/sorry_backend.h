@@ -1,8 +1,14 @@
 #ifndef SORRY_BACKEND_H
 #define SORRY_BACKEND_H
 
+#include <sorry/agent/base/baseAgent.hpp>
 #include <sorry/agent/mcts/sorryMcts.hpp>
 #include <sorry/engine/sorry.hpp>
+
+#pragma push_macro("slots")
+#undef slots
+#include <Python.h>
+#pragma pop_macro("slots")
 
 #include <QAbstractItemModel>
 #include <QAbstractListModel>
@@ -24,7 +30,8 @@ public:
   enum PlayerTypeEnum {
     Human,
     Mcts,
-    MctsAssistedHuman
+    MctsAssistedHuman,
+    Rl
   };
   Q_ENUM(PlayerTypeEnum);
 };
@@ -52,6 +59,7 @@ class MoveForArrow : public QObject {
   Q_PROPERTY(int srcPosition READ srcPosition CONSTANT)
   Q_PROPERTY(int destPosition READ destPosition CONSTANT)
 public:
+  explicit MoveForArrow(QObject *parent = nullptr) : QObject(parent) {}
   MoveForArrow(PlayerColor::PlayerColorEnum playerColor, int pieceIndex, int srcPosition, int destPosition) :
       playerColor_(playerColor), pieceIndex_(pieceIndex), srcPosition_(srcPosition), destPosition_(destPosition) {}
   ~MoveForArrow() {}
@@ -60,10 +68,10 @@ public:
   int srcPosition() const { return srcPosition_; };
   int destPosition() const { return destPosition_; };
 private:
-  const PlayerColor::PlayerColorEnum playerColor_;
-  const int pieceIndex_;
-  const int srcPosition_;
-  const int destPosition_;
+  const PlayerColor::PlayerColorEnum playerColor_{PlayerColor::PlayerColorEnum::Green};
+  const int pieceIndex_{0};
+  const int srcPosition_{0};
+  const int destPosition_{0};
 };
 
 class ActionForQml : public QObject {
@@ -103,7 +111,7 @@ public:
   ActionsList();
   int rowCount(const QModelIndex &parent = QModelIndex()) const override;
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
-  void setActionsAndScores(const std::vector<ActionScore> &actionsAndScores);
+  void setActionsAndScores(const std::vector<sorry::agent::ActionScore> &actionsAndScores);
   std::optional<sorry::engine::Action> getAction(int index) const;
 protected:
   QHash<int, QByteArray> roleNames() const override {
@@ -114,7 +122,7 @@ protected:
     return roles;
   }
 private:
-  std::vector<ActionScore> actionScores_;
+  std::vector<sorry::agent::ActionScore> actionScores_;
   mutable std::recursive_mutex mutex_;
   size_t bestIndex_{0};
 };
@@ -153,7 +161,7 @@ public:
 signals:
   void boardStateChanged();
   void actionListModelChanged();
-  void actionScoresChanged(std::vector<ActionScore> actionScores);
+  void actionScoresChanged(std::vector<sorry::agent::ActionScore> actionScores);
   void winRatesChanged(std::vector<double> winRates);
   void iterationCountChanged();
   void randomSeedChanged();
@@ -163,15 +171,19 @@ signals:
   void winnerChanged();
 
 private:
-  bool hiddenHand_{true};
+  bool hiddenHand_{false};
   static constexpr bool kHumanIsMctsAssisted{false};
   std::map<sorry::engine::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
   SorryMcts mcts_{2};
+  sorry::agent::BaseAgent *rlAgent_{nullptr};
   ExplicitTerminator mctsTerminator_;
   std::thread actionProberThread_;
   std::atomic<bool> runProber_;
 
   std::thread mctsThread_;
+
+  PyThreadState *savedThreadState_;
+  std::thread reinforceThread_;
   int randomSeed_;
   std::mt19937 eng_;
   sorry::engine::Sorry sorryState_{sorry::engine::PlayerColor::kGreen};
@@ -187,6 +199,7 @@ private:
   void probeActions();
   void terminateThreads();
   void runMctsAgent();
+  void runRlAgent();
   void doActionAsAgent(const sorry::engine::Action &action);
   void doAction(const sorry::engine::Action &action);
 

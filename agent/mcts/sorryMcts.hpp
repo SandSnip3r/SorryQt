@@ -1,7 +1,9 @@
 #ifndef SORRY_MCTS_HPP_
 #define SORRY_MCTS_HPP_
 
+#include <sorry/agent/base/baseAgent.hpp>
 #include <sorry/engine/action.hpp>
+#include <sorry/engine/sorry.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -12,10 +14,6 @@
 
 class Node;
 class LoopCondition;
-
-namespace sorry::engine {
-class Sorry;
-} // namespace sorry::engine
 
 namespace internal {
 
@@ -36,11 +34,6 @@ private:
   std::atomic<bool> done_{false};
 };
 
-struct ActionScore {
-  sorry::engine::Action action;
-  double score;
-};
-
 class SorryMcts {
 public:
   explicit SorryMcts(double explorationConstant);
@@ -49,7 +42,7 @@ public:
   void run(const sorry::engine::Sorry &startingState, internal::LoopCondition *loopCondition);
   void reset();
   sorry::engine::Action pickBestAction() const;
-  std::vector<ActionScore> getActionScores() const;
+  std::vector<sorry::agent::ActionScore> getActionScores() const;
   std::vector<double> getWinRates() const;
   int getIterationCount() const;
 private:

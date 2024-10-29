@@ -585,7 +585,8 @@ Window {
             }
           }
           onIsBestChanged: {
-            if (SorryBackend.playerType == PlayerType.Mcts) {
+            if (SorryBackend.playerType == PlayerType.Mcts ||
+                SorryBackend.playerType == PlayerType.Rl) {
               if (isBest) {
                 drawActionArrows()
               } else {
@@ -638,8 +639,9 @@ Window {
                 }
               }
 
-              if (SorryBackend.playerType == PlayerType.Mcts) {
-                // Do not draw actions for MCTS when action entered
+              if (!(SorryBackend.playerType == PlayerType.Human ||
+                    SorryBackend.playerType == PlayerType.MctsAssistedHuman)) {
+                // Only draw actions for human players when an action is entered
                 return
               }
 
@@ -659,8 +661,9 @@ Window {
                 }
               }
 
-              if (SorryBackend.playerType == PlayerType.Mcts) {
-                // Do not draw actions for MCTS when action entered
+              if (!(SorryBackend.playerType == PlayerType.Human ||
+                    SorryBackend.playerType == PlayerType.MctsAssistedHuman)) {
+                // Only draw actions for human players when an action is entered
                 return
               }
 

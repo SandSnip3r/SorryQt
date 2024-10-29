@@ -68,7 +68,7 @@ std::string Action::toString() const {
   } else if (actionType == ActionType::kSwap) {
     ss << "Swap";
   } else {
-    throw std::runtime_error("Unknown action type");
+    throw std::runtime_error("Action::toString(): Unknown action type");
   }
   if (actionType != ActionType::kSorry && actionType != ActionType::kSwap) {
     ss << ',' << sorry::engine::toString(card);

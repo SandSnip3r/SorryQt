@@ -129,7 +129,7 @@ sorry::engine::Action SorryMcts::pickBestAction() const {
   return rootNode_->successors.at(index)->action;
 }
 
-std::vector<ActionScore> SorryMcts::getActionScores() const {
+std::vector<sorry::agent::ActionScore> SorryMcts::getActionScores() const {
   std::unique_lock lock(treeMutex_);
   if (rootNode_ == nullptr) {
     // No known actions yet.
@@ -137,12 +137,11 @@ std::vector<ActionScore> SorryMcts::getActionScores() const {
   }
   std::vector<size_t> indices(rootNode_->successors.size());
   std::iota(indices.begin(), indices.end(), 0);
-  std::vector<ActionScore> result;
+  std::vector<sorry::agent::ActionScore> result;
   for (size_t index : indices) {
     const Node *successor = rootNode_->successors.at(index);
     const double score = nodeScore(successor, rootNode_, /*withExploration=*/false);
-    result.emplace_back(ActionScore{.action=successor->action,
-                                    .score=score});
+    result.emplace_back(successor->action, score);
   }
   return result;
 }

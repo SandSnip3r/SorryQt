@@ -1,5 +1,13 @@
 #include "sorry_backend.h"
 
+#pragma push_macro("slots")
+#undef slots
+#include <pybind11/embed.h>
+#include <pybind11/gil.h>
+
+#include <sorry/agent/rl/reinforceAgent.hpp>
+#pragma pop_macro("slots")
+
 #include <iostream>
 
 SorryBackend::SorryBackend(QObject *parent) : QObject(parent) {
@@ -7,6 +15,17 @@ SorryBackend::SorryBackend(QObject *parent) : QObject(parent) {
   connect(this, &SorryBackend::actionChosen, this, &SorryBackend::doActionAsAgent);
   initializeGame();
 }
+
+// Construct a player type for each player color.
+
+// At the start of a player's turn:
+// 1. Start computing action preferences
+// 2. Display action preferences as they update
+
+// Human players have no logic to execute and no preferences to display.
+// RL player has just a quick bit of logic to execute, preferences are immediately available.
+// MCTS player has a lot of logic to execute, preferences are not immediately available; async probe them.
+// MCTS assisted human is the same as mcts, except the human makes the final choice and mcts runs indefinitely.
 
 SorryBackend::~SorryBackend() {
   terminateThreads();
@@ -20,12 +39,18 @@ void SorryBackend::initializeGame() {
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
+  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen});
+  // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
   sorryState_.reset(eng_);
 
-  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
-  playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
+  rlAgent_ = new sorry::agent::ReinforceAgent();
+  rlAgent_->seed(randomSeed_);
+
+  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Rl;
+  // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Mcts;
+  // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
+  // playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kYellow] = PlayerType::Mcts;
 
@@ -63,6 +88,9 @@ void SorryBackend::updateAi() {
   } else if (playerType == PlayerType::MctsAssistedHuman) {
     // Run assistive mcts.
     runMctsAssistant();
+  } else if (playerType == PlayerType::Rl) {
+    std::cout << "Running agent" << std::endl;
+    runRlAgent();
   }
 }
 
@@ -103,7 +131,7 @@ QString SorryBackend::winner() const {
 void SorryBackend::probeActions() {
   runProber_ = true;
   while (runProber_) {
-    const auto actionsAndScores = mcts_.getActionScores();
+    const std::vector<sorry::agent::ActionScore> actionsAndScores = mcts_.getActionScores();
     emit actionScoresChanged(actionsAndScores);
     const auto winRates = mcts_.getWinRates();
     emit winRatesChanged(winRates);
@@ -134,8 +162,8 @@ void SorryBackend::runMctsAgent() {
   // Start running MCTS to figure out the value of each action.
   mctsThread_ = std::thread([&](){
     // mcts_.run(sorryState_, std::chrono::seconds(5));
-    mcts_.run(sorryState_, 5000);
-    const auto bestAction = mcts_.pickBestAction();
+    mcts_.run(sorryState_, 50000);
+    const sorry::engine::Action bestAction = mcts_.pickBestAction();
     // Terminate prober
     runProber_ = false;
     if (actionProberThread_.joinable()) {
@@ -149,6 +177,22 @@ void SorryBackend::runMctsAgent() {
   actionProberThread_ = std::thread(&SorryBackend::probeActions, this);
 }
 
+void SorryBackend::runRlAgent() {
+  savedThreadState_ = PyEval_SaveThread();
+  reinforceThread_ = std::thread([&](){
+    PyGILState_STATE gstate;
+    gstate = PyGILState_Ensure();
+    rlAgent_->run(sorryState_);
+    const std::vector<sorry::agent::ActionScore> actionsAndScores = rlAgent_->getActionScores();
+    emit actionScoresChanged(actionsAndScores);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    const sorry::engine::Action bestAction = rlAgent_->pickBestAction();
+    emit actionChosen(bestAction);
+    PyGILState_Release(gstate);
+    PyEval_RestoreThread(savedThreadState_);
+  });
+}
+
 void SorryBackend::terminateThreads() {
   // Terminate prober
   runProber_ = false;
@@ -159,6 +203,10 @@ void SorryBackend::terminateThreads() {
   mctsTerminator_.setDone(true);
   if (mctsThread_.joinable()) {
     mctsThread_.join();
+  }
+  // Terminate RL agent
+  if (reinforceThread_.joinable()) {
+    reinforceThread_.join();
   }
 }
 
@@ -193,7 +241,7 @@ sorry::engine::PlayerColor SorryBackend::backendEnumToSorryEnum(PlayerColor::Pla
 void SorryBackend::doActionFromActionList(int index) {
   // Received a request from the UI to do an action from our action list.
   // Get the action as quickly as possible
-  const auto action = actionsList_.getAction(index);
+  const std::optional<sorry::engine::Action> action = actionsList_.getAction(index);
   // We assume that the mcts assistant is running, kill it
   terminateThreads();
   // Do action
@@ -213,14 +261,13 @@ void SorryBackend::doAction(const sorry::engine::Action &action) {
   std::cout << "Doing action " << action.toString() << std::endl;
   const auto prevPlayerTurn = sorryState_.getPlayerTurn();
   sorryState_.doAction(action, eng_);
+  emit boardStateChanged();
   const auto currentPlayerTurn = sorryState_.getPlayerTurn();
   if (currentPlayerTurn != prevPlayerTurn) {
     emit playerTurnChanged();
   }
-  emit boardStateChanged();
   initializeActions();
   if (!sorryState_.gameDone()) {
-    initializeActions();
     updateAi();
   } else {
     emit playerTurnChanged();
@@ -229,18 +276,16 @@ void SorryBackend::doAction(const sorry::engine::Action &action) {
 }
 
 void SorryBackend::initializeActions() {
-  if (hiddenHand_ && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::Human && playerTypes_.at(sorryState_.getPlayerTurn()) != PlayerType::MctsAssistedHuman) {
+  PlayerType::PlayerTypeEnum currentPlayerType = playerTypes_.at(sorryState_.getPlayerTurn());
+  if (hiddenHand_ && currentPlayerType != PlayerType::Human && currentPlayerType != PlayerType::MctsAssistedHuman) {
     actionScoresChanged({});
     return;
   }
   const auto actions = sorryState_.getActions();
-  std::vector<ActionScore> actionScores;
+  std::vector<sorry::agent::ActionScore> actionScores;
   actionScores.reserve(actions.size());
   for (const auto &action : actions) {
-    actionScores.push_back({
-      .action = action,
-      .score = 0
-    });
+    actionScores.emplace_back(action, 0);
   }
   actionScoresChanged(actionScores);
 }
@@ -345,7 +390,7 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
     return QVariant();
   }
 
-  const ActionScore &actionScore = actionScores_.at(index.row());
+  const sorry::agent::ActionScore &actionScore = actionScores_.at(index.row());
   if (role == NameRole) {
     const sorry::engine::Action &action = actionScore.action;
     if (action.actionType == sorry::engine::Action::ActionType::kDiscard) {
@@ -360,7 +405,7 @@ QVariant ActionsList::data(const QModelIndex &index, int role) const {
   return QVariant();
 }
 
-void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAndScores) {
+void ActionsList::setActionsAndScores(const std::vector<sorry::agent::ActionScore> &actionsAndScores) {
   std::unique_lock lock(mutex_);
   std::vector<bool> actionSeen(actionScores_.size(), false);
   double bestScore = 0.0;
@@ -371,16 +416,17 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
       bestIndex = i;
     }
   }
-  for (size_t givenActionIndex=0; givenActionIndex<actionsAndScores.size(); ++givenActionIndex) {
-    const auto &givenActionScore = actionsAndScores.at(givenActionIndex);
-    const sorry::engine::Action &givenAction = givenActionScore.action;
+  size_t lastBestIndex = bestIndex_;
+  for (size_t newActionIndex=0; newActionIndex<actionsAndScores.size(); ++newActionIndex) {
+    const auto &newActionScore = actionsAndScores.at(newActionIndex);
+    const sorry::engine::Action &newAction = newActionScore.action;
     bool foundAction = false;
     for (size_t existingActionIndex=0; existingActionIndex<actionScores_.size(); ++existingActionIndex) {
-      ActionScore &actionScore = actionScores_.at(existingActionIndex);
-      if (actionScore.action == givenAction) {
+      sorry::agent::ActionScore &actionScore = actionScores_.at(existingActionIndex);
+      if (actionScore.action == newAction) {
         // Found our action, update the score
-        actionScore.score = givenActionScore.score;
-        if (givenActionIndex == bestIndex) {
+        actionScore.score = newActionScore.score;
+        if (newActionIndex == bestIndex) {
           bestIndex_ = existingActionIndex;
         }
         emit dataChanged(this->index(existingActionIndex), this->index(existingActionIndex), {ScoreRole, IsBestRole});
@@ -394,8 +440,8 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
     }
     // New action not yet in our list.
     beginInsertRows(QModelIndex(), actionScores_.size(), actionScores_.size());
-    actionScores_.push_back(givenActionScore);
-    if (givenActionIndex == bestIndex) {
+    actionScores_.push_back(newActionScore);
+    if (newActionIndex == bestIndex) {
       bestIndex_ = actionScores_.size()-1;
     }
     endInsertRows();
@@ -404,8 +450,15 @@ void ActionsList::setActionsAndScores(const std::vector<ActionScore> &actionsAnd
     if (!actionSeen[i]) {
       beginRemoveRows(QModelIndex(), i, i);
       actionScores_.erase(actionScores_.begin() + i);
+      if (bestIndex_ >= i) {
+        --bestIndex_;
+      }
       endRemoveRows();
     }
+  }
+  if (bestIndex_ != lastBestIndex) {
+    emit dataChanged(this->index(bestIndex_), this->index(bestIndex_), {IsBestRole});
+    emit dataChanged(this->index(lastBestIndex), this->index(lastBestIndex), {IsBestRole});
   }
 }
 

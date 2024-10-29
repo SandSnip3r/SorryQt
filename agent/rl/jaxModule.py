@@ -52,6 +52,12 @@ def getProbabilityAndIndex(key, model, data, mask):
   selectedProbability = jnp.sum(jax.lax.stop_gradient(oneHotIndex) * probabilities)
   return jnp.log(selectedProbability), selectedIndex
 
+def getProbabilitiesAndIndex(model, data, mask):
+  logits = model(data)
+  maskedLogits = logits + mask
+  probabilities = jax.nn.softmax(maskedLogits)
+  return probabilities, jax.numpy.argmax(probabilities)
+
 class InferenceClass:
   def __init__(self, actionSpaceSize):
     def loadModelFromCheckpoint(checkpointDirectory, actionSpaceSize):
@@ -62,15 +68,13 @@ class InferenceClass:
       stateRestored = checkpointer.restore(os.path.join(checkpointPath, 'latest'), abstractState)
       return nnx.merge(graphdef, stateRestored)
     
-    self.rngs = nnx.Rngs(0, sampleStream=1)
     self.model = loadModelFromCheckpoint('checkpoints', actionSpaceSize)
     self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
+    self.getProbabilitiesAndIndex = nnx.jit(getProbabilitiesAndIndex)
   
-  def setSeed(self, seed):
-    self.rngs = nnx.Rngs(0, sampleStream=seed)
-
-  def getActionIndexForState(self, data, mask):
-    return self.getProbabilityIndex(self.rngs.sampleStream(), self.model, data, mask)[1]
+  def getProbabilitiesAndSelectedIndex(self, data, mask):
+    modelClone = nnx.clone(self.model)
+    return self.getProbabilitiesAndIndex(modelClone, data, mask)
 
 class TrainingUtilClass:
   def __init__(self, actionSpaceSize):
