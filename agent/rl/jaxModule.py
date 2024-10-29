@@ -65,7 +65,7 @@ class InferenceClass:
       abstractModel = nnx.eval_shape(lambda: SorryDenseModel(rngs=nnx.Rngs(0), actionSpaceSize=actionSpaceSize))
       graphdef, abstractState = nnx.split(abstractModel)
       checkpointer = ocp.StandardCheckpointer()
-      stateRestored = checkpointer.restore(os.path.join(checkpointPath, 'latest'), abstractState)
+      stateRestored = checkpointer.restore(os.path.join(checkpointPath, 'single_reinforce'), abstractState)
       return nnx.merge(graphdef, stateRestored)
     
     self.model = loadModelFromCheckpoint('checkpoints', actionSpaceSize)
