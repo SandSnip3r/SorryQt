@@ -14,10 +14,10 @@ find_package(pybind11 REQUIRED)
 include_directories(${Python3_INCLUDE_DIRS})
 
 # Source files
-set(SRC_FILES
+set(TRAIN_SRC_FILES
   actionMap.cpp
   common.cpp
-  main.cpp
+  train.cpp
   trainingUtil.cpp
   trajectory.cpp
 )
@@ -69,12 +69,12 @@ target_compile_definitions(${LIBRARY_NAME} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_S
 
 # =============================================================================
 
-add_executable(rl_main ${SRC_FILES})
+add_executable(train ${TRAIN_SRC_FILES})
 add_executable(syntaxTest syntaxTest.cpp)
 
-target_compile_definitions(rl_main PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(train PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(rl_main PRIVATE
+target_link_libraries(train PRIVATE
   sorry::common
   sorry::engine
   pybind11::embed

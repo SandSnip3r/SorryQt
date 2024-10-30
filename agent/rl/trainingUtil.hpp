@@ -1,5 +1,5 @@
-#ifndef TRAINING_UTIL_HPP_
-#define TRAINING_UTIL_HPP_
+#ifndef PYTHON_WRAPPER_TRAINING_UTIL_HPP_
+#define PYTHON_WRAPPER_TRAINING_UTIL_HPP_
 
 #include "trajectory.hpp"
 
@@ -7,6 +7,8 @@
 
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+
+namespace python_wrapper {
 
 class TrainingUtil {
 public:
@@ -23,4 +25,6 @@ private:
   pybind11::object trainingUtilInstance_;
 };
 
-#endif // TRAINING_UTIL_HPP_
+} // namespace python_wrapper
+
+#endif // PYTHON_WRAPPER_TRAINING_UTIL_HPP_

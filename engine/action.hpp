@@ -36,6 +36,7 @@ public:
 };
 
 bool operator==(const Action &lhs, const Action &rhs);
+bool operator!=(const Action &lhs, const Action &rhs);
 
 } // namespace sorry::engine
 

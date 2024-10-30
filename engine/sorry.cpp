@@ -262,10 +262,6 @@ std::vector<Sorry::Move> Sorry::getMovesForAction(const Action &action) const {
   if (action.actionType == Action::ActionType::kDiscard) {
     return {};
   }
-  auto posOfPlayerPiece = [&](PlayerColor playerColor, int pieceIndex) {
-    const auto &player = getPlayer(playerColor);
-    return player.piecePositions.at(pieceIndex);
-  };
   auto indexAndColorOfPieceAtPos = [&](int pos) {
     for (const auto &player : players_) {
       for (size_t i=0; i<player.piecePositions.size(); ++i) {

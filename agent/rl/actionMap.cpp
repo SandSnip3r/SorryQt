@@ -49,18 +49,17 @@ ActionMap::ActionMap() {
   using sorry::engine::Action;
 
   auto addActions = [this](size_t count,
-                           std::function<Action(size_t)> actionGenerator,
-                           std::function<std::optional<size_t>(const Action&)> indexGenerator) {
+                           ActionMap::ActionRange::ActionGenerator actionGenerator,
+                           ActionMap::ActionRange::IndexGenerator indexGenerator) {
     size_t startOfRange = actionRanges_.empty() ? 0 : actionRanges_.back().end;
     actionRanges_.emplace_back(startOfRange, startOfRange+count, actionGenerator, indexGenerator);
   };
-  const sorry::engine::PlayerColor playerColor = sorry::engine::PlayerColor::kGreen; // TODO: Dynamically determine player color.
 
   // Define actions for all values of `index`.
   // ========================================= DISCARD =========================================
   // The first 11 actions are for discarding specific card types.
   addActions(11,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       return Action::discard(playerColor, cardIndexToCard(index));
     },
     [&](const Action &action) -> std::optional<size_t> {
@@ -73,7 +72,7 @@ ActionMap::ActionMap() {
   // ===================================== MOVE FROM START =====================================
   // The next action is for using a 1 card to move a piece out of Start.
   addActions(1,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       (void)index;
       constexpr int moveSource = 0;
       int firstPositionFromStart = sorry::engine::Sorry::getFirstPosition(playerColor);
@@ -92,7 +91,7 @@ ActionMap::ActionMap() {
 
   // The next action is for using a 2 card to move a piece out of Start.
   addActions(1,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       (void)index;
       constexpr int moveSource = 0;
       int firstPositionFromStart = sorry::engine::Sorry::getFirstPosition(playerColor);
@@ -112,7 +111,7 @@ ActionMap::ActionMap() {
   // ========================================== SORRY ==========================================
   // The next 60 actions are for using a Sorry card on a specific target public position.
   addActions(60,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       // Possible destinations are [1, 60]
       return Action::sorry(playerColor, index + 1);
     },
@@ -128,7 +127,7 @@ ActionMap::ActionMap() {
   // ========================================== SWAP ===========================================
   // The next 3600(60*60) actions are for using an 11 card to swap a piece on a specific public position with an opponent piece on a different specific public position.
   addActions(60*60,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       // Public positions are [1, 60]
       // index == sourcePosition * 60 + targetPosition
       int sourcePosition = index / 60 + 1;
@@ -147,7 +146,7 @@ ActionMap::ActionMap() {
   // ====================================== SINGLE FOWARD ======================================
   // The next 65 actions are for using a 1 card to move forward 1, starting from a specific position in the range [1,65].
   addActions(65,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 1);
       return Action::singleMove(playerColor, sorry::engine::Card::kOne, startingPosition, destination);
@@ -164,7 +163,7 @@ ActionMap::ActionMap() {
 
   // The next 64 actions are for using a 2 card to move forward 2, starting from a specific position in the range [1,64].
   addActions(64,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 2);
       return Action::singleMove(playerColor, sorry::engine::Card::kTwo, startingPosition, destination);
@@ -181,7 +180,7 @@ ActionMap::ActionMap() {
 
   // The next 63 actions are for using a 3 card to move forward 3, starting from a specific position in the range [1,63].
   addActions(63,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 3);
       return Action::singleMove(playerColor, sorry::engine::Card::kThree, startingPosition, destination);
@@ -197,7 +196,7 @@ ActionMap::ActionMap() {
 
   // The next 62 actions are for using a Sorry card to move forward 4, starting from a specific position in the range [1,62].
   addActions(62,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 4);
       return Action::singleMove(playerColor, sorry::engine::Card::kSorry, startingPosition, destination);
@@ -213,7 +212,7 @@ ActionMap::ActionMap() {
 
   // The next 61 actions are for using a 5 card to move forward 5, starting from a specific position in the range [1,61].
   addActions(61,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 5);
       return Action::singleMove(playerColor, sorry::engine::Card::kFive, startingPosition, destination);
@@ -229,7 +228,7 @@ ActionMap::ActionMap() {
 
   // The next 59 actions are for using a 7 card to move forward 7, starting from a specific position in the range [1,59].
   addActions(59,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 7);
       return Action::singleMove(playerColor, sorry::engine::Card::kSeven, startingPosition, destination);
@@ -245,7 +244,7 @@ ActionMap::ActionMap() {
 
   // The next 58 actions are for using a 8 card to move forward 8, starting from a specific position in the range [1,58].
   addActions(58,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 8);
       return Action::singleMove(playerColor, sorry::engine::Card::kEight, startingPosition, destination);
@@ -261,7 +260,7 @@ ActionMap::ActionMap() {
 
   // The next 56 actions are for using a 10 card to move forward 10, starting from a specific position in the range [1,56].
   addActions(56,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 10);
       const auto a = Action::singleMove(playerColor, sorry::engine::Card::kTen, startingPosition, destination);
@@ -270,7 +269,7 @@ ActionMap::ActionMap() {
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kSingleMove ||
           action.card != sorry::engine::Card::kTen ||
-          sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, action.move1Source, 10) != action.move1Destination) {
+          sorry::engine::Sorry::posAfterMoveForPlayer(action.playerColor, action.move1Source, 10) != action.move1Destination) {
         return std::nullopt;
       }
       return action.move1Source - 1;
@@ -279,7 +278,7 @@ ActionMap::ActionMap() {
 
   // The next 55 actions are for using a 11 card to move forward 11, starting from a specific position in the range [1,55].
   addActions(55,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 11);
       return Action::singleMove(playerColor, sorry::engine::Card::kEleven, startingPosition, destination);
@@ -295,7 +294,7 @@ ActionMap::ActionMap() {
 
   // The next 54 actions are for using a 12 card to move forward 12, starting from a specific position in the range [1,54].
   addActions(54,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 12);
       return Action::singleMove(playerColor, sorry::engine::Card::kTwelve, startingPosition, destination);
@@ -312,7 +311,7 @@ ActionMap::ActionMap() {
   // ===================================== SINGLE BACKWARD =====================================
   // The next 65 actions are for using a 10 card to move backward 1, starting from a specific position in the range [1,65].
   addActions(65,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, -1);
       return Action::singleMove(playerColor, sorry::engine::Card::kTen, startingPosition, destination);
@@ -320,7 +319,7 @@ ActionMap::ActionMap() {
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kSingleMove ||
           action.card != sorry::engine::Card::kTen ||
-          sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, action.move1Source, -1) != action.move1Destination) {
+          sorry::engine::Sorry::posAfterMoveForPlayer(action.playerColor, action.move1Source, -1) != action.move1Destination) {
         return std::nullopt;
       }
       return action.move1Source - 1;
@@ -329,7 +328,7 @@ ActionMap::ActionMap() {
 
   // The next 65 actions are for using a 4 card to move backward 4, starting from a specific position in the range [1,65].
   addActions(65,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, -4);
       return Action::singleMove(playerColor, sorry::engine::Card::kFour, startingPosition, destination);
@@ -348,7 +347,7 @@ ActionMap::ActionMap() {
   // The next 3900(65*60) actions are for using a 7 card to move one piece forward 1, starting from a specific position in the range [1,65] and a second piece forward 6, starting from a specific position in the range [1,60].
   // Note: This range includes the possibility of specifying the same source twice (60 invalid actions) as well as the same destination twice (60-1 invalid actions; both ending on 66 is valid).
   addActions(65*60,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       // index == (piece1SourcePosition-1) * 60 + (piece2SourcePosition-1)
       int piece1SourcePosition = index / 60 + 1;
       int piece2SourcePosition = index % 60 + 1;
@@ -358,7 +357,7 @@ ActionMap::ActionMap() {
     },
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kDoubleMove ||
-          sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, action.move1Source, 1) != action.move1Destination) {
+          sorry::engine::Sorry::posAfterMoveForPlayer(action.playerColor, action.move1Source, 1) != action.move1Destination) {
         return std::nullopt;
       }
       // This assumes that action.card is Card::kSeven.
@@ -371,7 +370,7 @@ ActionMap::ActionMap() {
   // The next 3904(64*61) actions are for using a 7 card to move one piece forward 2, starting from a specific position in the range [1,64] and a second piece forward 5, starting from a specific position in the range [1,61].
   // Note: This range includes the possibility of specifying the same source twice (61 invalid actions) as well as the same destination twice (61-1 invalid actions; both ending on 66 is valid).
   addActions(64*61,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       // index == (piece1SourcePosition-1) * 61 + (piece2SourcePosition-1)
       int piece1SourcePosition = index / 61 + 1;
       int piece2SourcePosition = index % 61 + 1;
@@ -381,7 +380,7 @@ ActionMap::ActionMap() {
     },
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kDoubleMove ||
-          sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, action.move1Source, 2) != action.move1Destination) {
+          sorry::engine::Sorry::posAfterMoveForPlayer(action.playerColor, action.move1Source, 2) != action.move1Destination) {
         return std::nullopt;
       }
       // This assumes that action.card is Card::kSeven.
@@ -394,7 +393,7 @@ ActionMap::ActionMap() {
   // The next 3904(63*62) actions are for using a 7 card to move one piece forward 3, starting from a specific position in the range [1,63] and a second piece forward 4, starting from a specific position in the range [1,62].
   // Note: This range includes the possibility of specifying the same source twice (62 invalid actions) as well as the same destination twice (62-1 invalid actions; both ending on 66 is valid).
   addActions(63*62,
-    [&](size_t index) {
+    [&](size_t index, sorry::engine::PlayerColor playerColor) {
       // index == (piece1SourcePosition-1) * 62 + (piece2SourcePosition-1)
       int piece1SourcePosition = index / 62 + 1;
       int piece2SourcePosition = index % 62 + 1;
@@ -404,7 +403,7 @@ ActionMap::ActionMap() {
     },
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kDoubleMove ||
-          sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, action.move1Source, 3) != action.move1Destination) {
+          sorry::engine::Sorry::posAfterMoveForPlayer(action.playerColor, action.move1Source, 3) != action.move1Destination) {
         return std::nullopt;
       }
       // This assumes that action.card is Card::kSeven.
@@ -415,31 +414,31 @@ ActionMap::ActionMap() {
 
   // ===========================================================================================
 
-  std::cout << "Final action count: " << actionRanges_.back().end << std::endl;
-  std::cout << "Ranges:" << std::endl;
-  for (const ActionRange &range : actionRanges_) {
-    std::cout << "  [" << range.start << ", " << range.end << ")" << std::endl;
-  }
-
   constexpr bool kTestThatMappingIsABijection{true};
   if constexpr (kTestThatMappingIsABijection) {
-    for (int index=0; index<totalActionCount(); ++index) {
-      sorry::engine::Action action = indexToAction(index);
-      int newIndex = actionToIndex(action);
-      if (index != newIndex) {
-        throw std::runtime_error("Action index " + std::to_string(index) + " maps to action " + action.toString() + " which maps to index " + std::to_string(newIndex));
+    std::cout << "Running test on ActionMap" << std::endl;
+    for (sorry::engine::PlayerColor playerColor : {sorry::engine::PlayerColor::kGreen,
+                                                   sorry::engine::PlayerColor::kYellow, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue}) {
+      for (int index=0; index<totalActionCount(); ++index) {
+        sorry::engine::Action action = indexToActionForPlayer(index, playerColor);
+        int newIndex = actionToIndex(action);
+        if (index != newIndex) {
+          throw std::runtime_error("Action index " + std::to_string(index) + " maps to action " + action.toString() + " which maps to index " + std::to_string(newIndex));
+        }
       }
     }
 
-    const Action testAction = Action::doubleMove(sorry::engine::PlayerColor::kGreen, sorry::engine::Card::kSeven, 0, 2, 24, 29);
-    const int testIndex = actionToIndex(testAction);
+    // Manual test that an action->index->action round trip works.
+    // const Action testAction = Action::doubleMove(sorry::engine::PlayerColor::kGreen, sorry::engine::Card::kSeven, 0, 2, 24, 29);
+    // const int testIndex = actionToIndex(testAction);
+    std::cout << "ActionMap test passed" << std::endl;
   }
 }
 
-sorry::engine::Action ActionMap::indexToAction(size_t index) const {
+sorry::engine::Action ActionMap::indexToActionForPlayer(size_t index, sorry::engine::PlayerColor playerColor) const {
   for (const ActionRange &range : actionRanges_) {
     if (index >= range.start && index < range.end) {
-      return range.actionGenerator(index - range.start);
+      return range.actionGenerator(index - range.start, playerColor);
     }
   }
   throw std::runtime_error("Action index " + std::to_string(index) + " is out of range");

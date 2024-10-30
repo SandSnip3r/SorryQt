@@ -114,4 +114,8 @@ bool operator==(const Action &lhs, const Action &rhs) {
   throw std::runtime_error("Missed a comparison");
 }
 
+bool operator!=(const Action &lhs, const Action &rhs) {
+  return !(lhs == rhs);
+}
+
 } // namespace sorry::engine

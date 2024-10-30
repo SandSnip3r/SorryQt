@@ -7,10 +7,10 @@
 namespace sorry::engine {
 
 enum class PlayerColor : uint8_t {
-  kGreen,
-  kRed,
-  kBlue,
-  kYellow
+  kGreen = 0,
+  kRed = 1,
+  kBlue = 2,
+  kYellow = 3
 };
 
 std::string_view toString(PlayerColor playerColor);

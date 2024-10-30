@@ -61,12 +61,12 @@ void trainReinforce() {
   constexpr bool kUseActionMasking{true};
 
   // Initialize python module/model
-  TrainingUtil trainingUtil(jaxModule);
+  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule);
 
   // Seed all random engines
   constexpr int kSeed = 0x5EED;
   std::mt19937 randomEngine{kSeed};
-  trainingUtil.setSeed(kSeed);
+  pythonTrainingUtil.setSeed(kSeed);
 
   // Construct Sorry game
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
@@ -87,7 +87,7 @@ void trainReinforce() {
       sorry::engine::Action action;
       if constexpr (kUseActionMasking) {
         // Take an action according to the policy, masked by the valid actions
-        std::tie(gradient, action) = trainingUtil.getGradientAndAction(sorry, &actions);
+        std::tie(gradient, action) = pythonTrainingUtil.getGradientAndAction(sorry, &actions);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Valid actions were:" << std::endl;
@@ -97,7 +97,7 @@ void trainReinforce() {
           throw std::runtime_error("Invalid action after mask "+action.toString());
         }
       } else {
-        std::tie(gradient, action) = trainingUtil.getGradientAndAction(sorry);
+        std::tie(gradient, action) = pythonTrainingUtil.getGradientAndAction(sorry);
 
         // Terminate the episode if the action is invalid
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
@@ -124,7 +124,7 @@ void trainReinforce() {
     }
     // A full trajectory has been generated, now train the model
     auto trainStartTime = std::chrono::high_resolution_clock::now();
-    trainingUtil.train(trajectory);
+    pythonTrainingUtil.train(trajectory);
     auto endTime = std::chrono::high_resolution_clock::now();
     // std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
     summaryWriter.attr("add_scalar")("episode/action_count", actionCount, i);
@@ -132,12 +132,11 @@ void trainReinforce() {
     if ((i+1)%100 == 0) {
       cout << "Episode " << i << " complete" << endl;
       if ((i+1)%1000 == 0) {
-        trainingUtil.saveCheckpoint();
+        pythonTrainingUtil.saveCheckpoint();
       }
     }
   }
 }
-
 
 void loadModel() {
   py::module jaxModule = py::module::import("jaxModule");
@@ -167,7 +166,7 @@ void loadModel() {
 
     py::object index = inferenceInstance.attr("getActionIndexForState")(observation, actionMask);
     int actionIndex = index.cast<int>();
-    const sorry::engine::Action action = ActionMap::getInstance().indexToAction(actionIndex);
+    const sorry::engine::Action action = ActionMap::getInstance().indexToActionForPlayer(actionIndex, sorry.getPlayerTurn());
     cout << sorry.toString() << endl;
     cout << "Want to take action " << action.toString() << endl;
     sorry.doAction(action, randomEngine);
@@ -176,16 +175,14 @@ void loadModel() {
 
 int main() {
   // Initialize the Python interpreter
-  py::scoped_interpreter guard{};
+  py::scoped_interpreter guard;
 
-  // Get the sys module
+  // Append the current source directory to sys.path so that we can later load any local python files. SOURCE_DIR is set from CMake.
   py::module sys = py::module::import("sys");
+  const std::string sourceDir = std::string(SOURCE_DIR);
+  std::cout << "Setting source directory as \"" << sourceDir << "\" (for loading python files)" << std::endl;
+  sys.attr("path").cast<py::list>().append(sourceDir);
 
-  // Append the directory containing my_jax.py to sys.path, SOURCE_DIR is set from CMake.
-  sys.attr("path").cast<py::list>().append(std::string(SOURCE_DIR));
-
-  // trainReinforce();
-
-  loadModel();
+  trainReinforce();
   return 0;
 }

@@ -2,29 +2,9 @@ import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
 import os
+import pathlib
 from flax import nnx
 from functools import partial
-
-class Trajectory:
-  def __init__(self):
-    self.gradients = []
-    self.rewards = []
-
-  def pushStep(self, grad, reward):
-    self.gradients.append(grad)
-    self.rewards.append(reward)
-
-  # Define __iter__ so it can be iterated over
-  def __iter__(self):
-    return zip(self.gradients, self.rewards)
-
-  # Define __reversed__ to reverse both lists
-  def __reversed__(self):
-    return zip(reversed(self.gradients), reversed(self.rewards))
-
-  # Optionally, you could define a __len__ method too
-  def __len__(self):
-    return len(self.gradients)
 
 class SorryDenseModel(nnx.Module):
   def __init__(self, rngs, actionSpaceSize):
@@ -36,6 +16,10 @@ class SorryDenseModel(nnx.Module):
     x = jax.nn.relu(x)
     # Directly return the logits for both sampling (jax.random.categorical takes logits) and calculating probabilities
     return self.linear2(x)
+
+# ================================================================================================
+# ================================================================================================
+# ================================================================================================
 
 @partial(nnx.jit)
 def compiledUpdate(model, gradient, reward, learningRate):
@@ -58,6 +42,10 @@ def getProbabilitiesAndIndex(model, data, mask):
   probabilities = jax.nn.softmax(maskedLogits)
   return probabilities, jax.numpy.argmax(probabilities)
 
+# ================================================================================================
+# ================================================================================================
+# ================================================================================================
+
 class InferenceClass:
   def __init__(self, actionSpaceSize):
     def loadModelFromCheckpoint(checkpointDirectory, actionSpaceSize):
@@ -76,11 +64,15 @@ class InferenceClass:
     modelClone = nnx.clone(self.model)
     return self.getProbabilitiesAndIndex(modelClone, data, mask)
 
+# ================================================================================================
+# ================================================================================================
+# ================================================================================================
+
 class TrainingUtilClass:
   def __init__(self, actionSpaceSize):
     self.rngs = nnx.Rngs(0, sampleStream=1)
     self.model = SorryDenseModel(rngs=self.rngs, actionSpaceSize=actionSpaceSize)
-    checkpointDir = os.path.join(os.getcwd(), 'checkpoints')
+    self.checkpointDirectory = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints'))
     # self.checkpointDirectory = ocp.test_utils.erase_and_create_empty(checkpointDir)
     self.checkpointer = ocp.StandardCheckpointer()
 

@@ -1,5 +1,7 @@
 #include "sorry_backend.h"
 
+// Python & Qt both define `slots`
+//  https://stackoverflow.com/a/49359288
 #pragma push_macro("slots")
 #undef slots
 #include <pybind11/embed.h>
@@ -35,11 +37,12 @@ void SorryBackend::initializeGame() {
   // Initialize random engine
   // randomSeed_ = -557428517;
   randomSeed_ = std::random_device()();
+  std::cout << "Seed: " << randomSeed_ << std::endl;
   emit randomSeedChanged();
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen});
+  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kBlue});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
   sorryState_.reset(eng_);
@@ -47,7 +50,7 @@ void SorryBackend::initializeGame() {
   rlAgent_ = new sorry::agent::ReinforceAgent();
   rlAgent_->seed(randomSeed_);
 
-  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::RlAssistedHuman;
+  playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Rl;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
   // playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
@@ -179,6 +182,8 @@ void SorryBackend::runMctsAgent() {
 }
 
 void SorryBackend::runRlAgent() {
+  // Since we're running the RL agent in another thread, we need to do some manual GIL management.
+  //  https://docs.python.org/3/c-api/init.html
   savedThreadState_ = PyEval_SaveThread();
   reinforceThread_ = std::thread([&](){
     PyGILState_STATE gstate;
@@ -186,7 +191,7 @@ void SorryBackend::runRlAgent() {
     rlAgent_->run(sorryState_);
     const std::vector<sorry::agent::ActionScore> actionsAndScores = rlAgent_->getActionScores();
     emit actionScoresChanged(actionsAndScores);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
     const sorry::engine::Action bestAction = rlAgent_->pickBestAction();
     emit actionChosen(bestAction);
     PyGILState_Release(gstate);

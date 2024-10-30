@@ -58,7 +58,7 @@ void ReinforceAgent::run(const sorry::engine::Sorry &sorry) {
   int actionIndex = pybind11::cast<int>(probabilitiesAndIndex[1]);
   
   // Save best action
-  bestAction_ = ActionMap::getInstance().indexToAction(actionIndex);
+  bestAction_ = ActionMap::getInstance().indexToActionForPlayer(actionIndex, sorry.getPlayerTurn());
 
   // Reset action probabilities
   actionScores_.clear();
