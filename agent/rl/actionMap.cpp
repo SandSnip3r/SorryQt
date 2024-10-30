@@ -226,8 +226,9 @@ ActionMap::ActionMap() {
     }
   );
 
-  // The next 59 actions are for using a 7 card to move forward 7, starting from a specific position in the range [1,59].
-  addActions(59,
+  // The next 60 actions are for using a 7 card to move forward 7, starting from a specific position in the range [1,60].
+  // Note that while Green cannot move forward 7 from position 60 (because that would be beyond Green's home), any other player can move forward 7 from position 60.
+  addActions(60,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 7);
@@ -242,8 +243,9 @@ ActionMap::ActionMap() {
     }
   );
 
-  // The next 58 actions are for using a 8 card to move forward 8, starting from a specific position in the range [1,58].
-  addActions(58,
+  // The next 60 actions are for using a 8 card to move forward 8, starting from a specific position in the range [1,60].
+  // Note that while Green cannot move forward 8 from position 59 or 60 (because that would be beyond Green's home), any other player can move forward 8 from position 59 or 60.
+  addActions(60,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 8);
@@ -258,8 +260,9 @@ ActionMap::ActionMap() {
     }
   );
 
-  // The next 56 actions are for using a 10 card to move forward 10, starting from a specific position in the range [1,56].
-  addActions(56,
+  // The next 60 actions are for using a 10 card to move forward 10, starting from a specific position in the range [1,60].
+  // Note that while Green cannot move forward 10 from position 57,58,59, or 60 (because that would be beyond Green's home), any other player can move forward 10 from position 57,58,59, or 60.
+  addActions(60,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 10);
@@ -276,8 +279,9 @@ ActionMap::ActionMap() {
     }
   );
 
-  // The next 55 actions are for using a 11 card to move forward 11, starting from a specific position in the range [1,55].
-  addActions(55,
+  // The next 60 actions are for using a 11 card to move forward 11, starting from a specific position in the range [1,60].
+  // Note that while Green cannot move forward 11 from position 56,57,58,59, or 60 (because that would be beyond Green's home), any other player can move forward 11 from position 56,57,58,59, or 60.
+  addActions(60,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 11);
@@ -292,8 +296,9 @@ ActionMap::ActionMap() {
     }
   );
 
-  // The next 54 actions are for using a 12 card to move forward 12, starting from a specific position in the range [1,54].
-  addActions(54,
+  // The next 60 actions are for using a 12 card to move forward 12, starting from a specific position in the range [1,60].
+  // Note that while Green cannot move forward 12 from position 55,56,57,58,59, or 60 (because that would be beyond Green's home), any other player can move forward 12 from position 55,56,57,58,59, or 60.
+  addActions(60,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
       int startingPosition = 1 + index;
       int destination = sorry::engine::Sorry::posAfterMoveForPlayer(playerColor, startingPosition, 12);
@@ -428,9 +433,22 @@ ActionMap::ActionMap() {
       }
     }
 
-    // Manual test that an action->index->action round trip works.
-    // const Action testAction = Action::doubleMove(sorry::engine::PlayerColor::kGreen, sorry::engine::Card::kSeven, 0, 2, 24, 29);
+    // // Manual test that an action->index->action round trip works.
+    // const Action testAction = Action::singleMove(sorry::engine::PlayerColor::kBlue, sorry::engine::Card::kTen, 3, 2);
+    // std::cout << "Getting index for action " << testAction.toString() << std::endl;
     // const int testIndex = actionToIndex(testAction);
+    // const Action roundTripAction = indexToActionForPlayer(testIndex, sorry::engine::PlayerColor::kBlue);
+    // std::cout << "testAction: " << testAction.toString() << std::endl;
+    // std::cout << "testIndex: " << testIndex << std::endl;
+    // std::cout << "roundTripAction: " << roundTripAction.toString() << std::endl;
+    // const Action testAction2 = Action::singleMove(sorry::engine::PlayerColor::kBlue, sorry::engine::Card::kTwelve, 57, 9);
+    // std::cout << "Getting index for testAction2: " << testAction2.toString() << std::endl;
+    // const int testIndex2 = actionToIndex(testAction2);
+    // std::cout << "testIndex2: " << testIndex2 << std::endl;
+    // // Blue,SingleMove,Twelve,57,9
+    // if (testIndex == testIndex2) {
+    //   throw std::runtime_error("Manual test failed");
+    // }
     std::cout << "ActionMap test passed" << std::endl;
   }
 }

@@ -61,21 +61,33 @@ void trainReinforce() {
   constexpr bool kUseActionMasking{true};
 
   // Initialize python module/model
-  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule);
+  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, "latest");
 
   // Seed all random engines
   constexpr int kSeed = 0x5EED;
   std::mt19937 randomEngine{kSeed};
   pythonTrainingUtil.setSeed(kSeed);
 
-  // Construct Sorry game
-  sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
-  // TODO: Color shouldn't matter, I just randomly picked green.
+  auto pickRandomColor = [&randomEngine]() {
+    const std::array<sorry::engine::PlayerColor, 4> colors = {
+      sorry::engine::PlayerColor::kGreen,
+      sorry::engine::PlayerColor::kYellow,
+      sorry::engine::PlayerColor::kRed,
+      sorry::engine::PlayerColor::kBlue
+    };
+    std::uniform_int_distribution<size_t> dist(0, colors.size()-1);
+    return colors[dist(randomEngine)];
+  };
+
   Trajectory trajectory;
 
   constexpr int kEpisodeCount = 1'000'000;
   for (int i=0; i<kEpisodeCount; ++i) {
     auto episodeStartTime = std::chrono::high_resolution_clock::now();
+    // Construct Sorry game
+    // TODO: This construction should be moved outside the loop
+    const sorry::engine::PlayerColor playerColor = pickRandomColor();
+    sorry::engine::Sorry sorry({playerColor});
     sorry.reset(randomEngine);
     trajectory.reset();
 
@@ -90,6 +102,7 @@ void trainReinforce() {
         std::tie(gradient, action) = pythonTrainingUtil.getGradientAndAction(sorry, &actions);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
+          std::cout << "Current state: " << sorry.toString() << std::endl;
           std::cout << "Valid actions were:" << std::endl;
           for (const sorry::engine::Action &a : actions) {
             std::cout << "  " << a.toString() << std::endl;

@@ -8,7 +8,7 @@ from functools import partial
 
 class SorryDenseModel(nnx.Module):
   def __init__(self, rngs, actionSpaceSize):
-    self.linear1 = nnx.Linear(in_features=323, out_features=32, rngs=rngs)
+    self.linear1 = nnx.Linear(in_features=327, out_features=32, rngs=rngs)
     self.linear2 = nnx.Linear(in_features=32, out_features=actionSpaceSize, rngs=rngs)
 
   def __call__(self, x):
@@ -42,21 +42,21 @@ def getProbabilitiesAndIndex(model, data, mask):
   probabilities = jax.nn.softmax(maskedLogits)
   return probabilities, jax.numpy.argmax(probabilities)
 
+def loadModelFromCheckpoint(checkpointPath, actionSpaceSize):
+  abstractModel = nnx.eval_shape(lambda: SorryDenseModel(rngs=nnx.Rngs(0), actionSpaceSize=actionSpaceSize))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
 # ================================================================================================
 # ================================================================================================
 # ================================================================================================
 
 class InferenceClass:
   def __init__(self, actionSpaceSize):
-    def loadModelFromCheckpoint(checkpointDirectory, actionSpaceSize):
-      checkpointPath = os.path.join(os.getcwd(), checkpointDirectory)
-      abstractModel = nnx.eval_shape(lambda: SorryDenseModel(rngs=nnx.Rngs(0), actionSpaceSize=actionSpaceSize))
-      graphdef, abstractState = nnx.split(abstractModel)
-      checkpointer = ocp.StandardCheckpointer()
-      stateRestored = checkpointer.restore(os.path.join(checkpointPath, 'single_reinforce'), abstractState)
-      return nnx.merge(graphdef, stateRestored)
-    
-    self.model = loadModelFromCheckpoint('checkpoints', actionSpaceSize)
+    checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_1p_any'
+    print(f'Loading model from {checkpointPath}')
+    self.model = loadModelFromCheckpoint(checkpointPath, actionSpaceSize)
     self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
     self.getProbabilitiesAndIndex = nnx.jit(getProbabilitiesAndIndex)
   
@@ -69,11 +69,14 @@ class InferenceClass:
 # ================================================================================================
 
 class TrainingUtilClass:
-  def __init__(self, actionSpaceSize):
+  def __init__(self, actionSpaceSize, checkpointName=None):
     self.rngs = nnx.Rngs(0, sampleStream=1)
-    self.model = SorryDenseModel(rngs=self.rngs, actionSpaceSize=actionSpaceSize)
-    self.checkpointDirectory = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints'))
-    # self.checkpointDirectory = ocp.test_utils.erase_and_create_empty(checkpointDir)
+    self.checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'latest'
+    if checkpointName is not None:
+      print(f'Loading model from {self.checkpointPath}')
+      self.model = loadModelFromCheckpoint(self.checkpointPath, actionSpaceSize)
+    else:
+      self.model = SorryDenseModel(rngs=self.rngs, actionSpaceSize=actionSpaceSize)
     self.checkpointer = ocp.StandardCheckpointer()
 
     self.getProbabilityIndexAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndIndex, argnums=1, has_aux=True))
@@ -90,5 +93,5 @@ class TrainingUtilClass:
   
   def saveCheckpoint(self):
     _, state = nnx.split(self.model)
-    self.checkpointer.save(self.checkpointDirectory/'latest', state, force=True)
-    print(f'Saved checkpoint at {self.checkpointDirectory/"latest"}')
+    self.checkpointer.save(self.checkpointPath, state, force=True)
+    print(f'Saved checkpoint at {self.checkpointPath}')

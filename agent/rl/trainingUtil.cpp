@@ -8,11 +8,15 @@ namespace py = pybind11;
 
 namespace python_wrapper {
 
-TrainingUtil::TrainingUtil(py::module &jaxModule) {
+TrainingUtil::TrainingUtil(pybind11::module &jaxModule, std::optional<std::string> checkpointDirName) {
   // Instantiate the MyModel class from Python
   py::object TrainingUtilClass = jaxModule.attr("TrainingUtilClass");
   // Create an instance of MyModel
-  trainingUtilInstance_ = TrainingUtilClass(ActionMap::getInstance().totalActionCount());
+  if (checkpointDirName.has_value()) {
+    trainingUtilInstance_ = TrainingUtilClass(ActionMap::getInstance().totalActionCount(), checkpointDirName.value());
+  } else {
+    trainingUtilInstance_ = TrainingUtilClass(ActionMap::getInstance().totalActionCount());
+  }
 }
 
 void TrainingUtil::setSeed(int seed) {
@@ -39,8 +43,9 @@ std::pair<py::object, sorry::engine::Action> TrainingUtil::getGradientAndAction(
   }
   // Take an action according to the policy
   py::object gradient = result[0];
-  int index = result[1].cast<int>();
-  return {gradient, ActionMap::getInstance().indexToActionForPlayer(index, sorry.getPlayerTurn())};
+  const int index = result[1].cast<int>();
+  const sorry::engine::Action action = ActionMap::getInstance().indexToActionForPlayer(index, sorry.getPlayerTurn());
+  return {gradient, action};
 }
 
 void TrainingUtil::train(const Trajectory &trajectory) {

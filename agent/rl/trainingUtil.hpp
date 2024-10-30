@@ -12,7 +12,7 @@ namespace python_wrapper {
 
 class TrainingUtil {
 public:
-  TrainingUtil(pybind11::module &jaxModule);
+  TrainingUtil(pybind11::module &jaxModule, std::optional<std::string> checkpointDirName = std::nullopt);
   void setSeed(int seed);
 
   std::pair<pybind11::object, sorry::engine::Action> getGradientAndAction(
