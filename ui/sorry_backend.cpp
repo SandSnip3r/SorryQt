@@ -35,7 +35,6 @@ SorryBackend::~SorryBackend() {
 
 void SorryBackend::initializeGame() {
   // Initialize random engine
-  // randomSeed_ = -557428517;
   randomSeed_ = std::random_device()();
   std::cout << "Seed: " << randomSeed_ << std::endl;
   emit randomSeedChanged();
