@@ -19,21 +19,25 @@
 #include <functional>
 #include <random>
 
+namespace py = pybind11;
+using namespace std;
+
 class ScopedTimer {
 public:
-  ScopedTimer(std::string_view name) : name_(name) {
+  ScopedTimer(py::object summaryWriter, std::string_view name, int episodeIndex) : summaryWriter_(summaryWriter), name_(name), episodeIndex_(episodeIndex) {
     startTime_ = std::chrono::high_resolution_clock::now();
   }
   ~ScopedTimer() {
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::cout << "\"" << name_ << "\" took " << std::chrono::duration_cast<std::chrono::microseconds>(endTime-startTime_).count() << "us" << std::endl;
+    const int microseconds = std::chrono::duration_cast<std::chrono::microseconds>(endTime-startTime_).count();
+    summaryWriter_.attr("add_scalar")("timing/"+name_, microseconds, episodeIndex_);
   }
 private:
+  py::object summaryWriter_;
   const std::string name_;
+  const int episodeIndex_;
   std::chrono::time_point<std::chrono::high_resolution_clock> startTime_;
 };
-
-using namespace std;
 
 // How long does it take an agent acting randomly to finish a game of Sorry?
 void simulateRandomGames() {
@@ -63,8 +67,6 @@ void simulateRandomGames() {
   double avg = static_cast<double>(totalActionCount) / kNumGames;
   cout << endl << "Average actions per game: " << avg << endl;
 }
-
-namespace py = pybind11;
 
 void trainReinforce() {
   // Load the Python module
@@ -99,7 +101,7 @@ void trainReinforce() {
 
   constexpr int kEpisodeCount = 1'000'000;
   for (int episodeIndex=0; episodeIndex<kEpisodeCount; ++episodeIndex) {
-    ScopedTimer timer("Episode #"+std::to_string(episodeIndex));
+    ScopedTimer timer(summaryWriter, "entire_episode", episodeIndex);
     // Construct Sorry game
     // TODO: This construction should be moved outside the loop
     const sorry::engine::PlayerColor playerColor = pickRandomColor();
@@ -158,7 +160,7 @@ void trainReinforce() {
     }
     // A full trajectory has been generated, now train the model
     {
-      ScopedTimer timer("Training");
+      ScopedTimer timer(summaryWriter, "training_util_train", episodeIndex);
       pythonTrainingUtil.train(trajectory, episodeIndex);
     }
     summaryWriter.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
