@@ -8,11 +8,16 @@
 class Trajectory {
 public:
   Trajectory();
-  void pushStep(pybind11::object gradient, double reward);
+  void pushStep(pybind11::object policyGradient, float reward, pybind11::object valueGradient, float value);
   void reset();
+  size_t size() const { return policyGradients.size(); }
 
-  std::vector<pybind11::object> gradients;
-  std::vector<double> rewards;
+  // Policy gradient is directly ready for gradient descent.
+  std::vector<pybind11::object> policyGradients;
+  std::vector<float> rewards;
+  // Value gradient is based on gradient ascent, make sure to negate the gradient before passing to a gradient descent optimizer.
+  std::vector<pybind11::object> valueGradients;
+  std::vector<float> values;
 };
 
 #endif // TRAJECTORY_HPP_

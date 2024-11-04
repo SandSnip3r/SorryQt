@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
 import os
+import sys
+import optax
 import pathlib
 from flax import nnx
 from functools import partial
@@ -13,47 +15,104 @@ class PolicyNetwork(nnx.Module):
 
   def __call__(self, x):
     x = self.linear1(x)
+    # assert not jnp.isnan(x).any(), "NaN detected after linear1"
     x = jax.nn.relu(x)
+    # assert not jnp.isnan(x).any(), "NaN detected after ReLU"
     # Directly return the logits for
     #  1. Sampling (jax.random.categorical takes logits)
     #  2. Calculating probabilities
-    return self.linear2(x)
+    x = self.linear2(x)
+    # assert not jnp.isnan(x).any(), "NaN detected after linear2"
+    return x
+
+class ValueNetwork(nnx.Module):
+  def __init__(self, rngs):
+    self.linear1 = nnx.Linear(in_features=327, out_features=128, rngs=rngs)
+    self.linear2 = nnx.Linear(in_features=128, out_features=1, rngs=rngs)
+
+  def __call__(self, x):
+    x = self.linear1(x)
+    x = jax.nn.relu(x)
+    x = self.linear2(x)
+    return x.reshape()
 
 # ================================================================================================
 # ================================================================================================
 # ================================================================================================
+
+def printGradientInfo(gradients):
+  flatGrads, _ = jax.tree_util.tree_flatten(gradients)
+  flatGradsArray = jnp.concatenate([jnp.ravel(g) for g in flatGrads])
+  mean_grad = jnp.mean(flatGradsArray)
+  std_grad = jnp.std(flatGradsArray)
+  max_grad = jnp.max(flatGradsArray)
+  min_grad = jnp.min(flatGradsArray)
+  max_idx = jnp.unravel_index(jnp.argmax(flatGradsArray), flatGradsArray.shape)
+  min_idx = jnp.unravel_index(jnp.argmin(flatGradsArray), flatGradsArray.shape)
+
+  # Print gradients and statistics
+  jax.debug.print("Gradients:\n{flatGradsArray}", flatGradsArray=flatGradsArray)
+  jax.debug.print("Mean of gradients: {mean_grad}", mean_grad=mean_grad)
+  jax.debug.print("Std dev of gradients: {std_grad}", std_grad=std_grad)
+  jax.debug.print("Max gradient value: {max_grad} at index {max_idx}", max_grad=max_grad, max_idx=max_idx)
+  jax.debug.print("Min gradient value: {min_grad} at index {min_idx}", min_grad=min_grad, min_idx=min_idx)
 
 @partial(nnx.jit)
-def compiledUpdate(model, gradient, reward, learningRate):
+def compiledUpdate(model, gradient, tdError, learningRate, l2Regularization):
   _, params, rest = nnx.split(model, nnx.Param, ...)
-  params = jax.tree.map(lambda p, g: p + learningRate * reward * g, params, gradient)
+  # params = jax.tree.map(lambda p, g: p + learningRate * tdError * g, params, gradient)
+  params = jax.tree.map(lambda p, g: p + learningRate * tdError * g - l2Regularization * p, params, gradient)
   nnx.update(model, nnx.GraphState.merge(params, rest))
 
-def getProbabilityAndIndex(key, model, data, mask):
-  logits = model(data)
+def getProbabilityAndIndex(rngKey, policyNetwork, input, mask):
+  # assert not jnp.isnan(input).any(), "NaN detected in input"
+  logits = policyNetwork(input)
   # `mask` is a 1D array of size `actionSpaceSize`, where the index of the action to be masked is set to -inf, and all other indices are set to 0
   maskedLogits = logits + mask
-  selectedIndex = jax.random.categorical(key, maskedLogits)
+  selectedIndex = jax.random.categorical(rngKey, maskedLogits)
   probabilities = jax.nn.softmax(maskedLogits)
   oneHotIndex = jax.nn.one_hot(selectedIndex, probabilities.shape[-1])
   selectedProbability = jnp.sum(jax.lax.stop_gradient(oneHotIndex) * probabilities)
-  return jnp.log(selectedProbability), selectedIndex
+  # if jnp.isnan(jax.lax.stop_gradient(selectedProbability)).any():
+  #   jnp.set_printoptions(threshold=sys.maxsize)
+  #   jax.debug.print(f"Logits: {jax.lax.stop_gradient(logits)}")
+  #   assert not jnp.isnan(logits).any(), "NaN detected in logits"
+  #   jax.debug.print(f"Masked Logits: {jax.lax.stop_gradient(maskedLogits)}")
+  #   assert not jnp.isnan(maskedLogits).any(), "NaN detected in maskedLogits"
+  #   jax.debug.print(f"Selected Index: {jax.lax.stop_gradient(selectedIndex)}")
+  #   jax.debug.print(f"Probabilities: {jax.lax.stop_gradient(probabilities)}")
+  #   assert not jnp.isnan(probabilities).any(), "NaN detected in probabilities"
+  #   jax.debug.print(f'Selected probability: {jax.lax.stop_gradient(selectedProbability)}')
+  return -jnp.log(selectedProbability), selectedIndex
 
-def getProbabilitiesAndIndex(model, data, mask):
-  logits = model(data)
+def getProbabilitiesAndIndex(policyNetwork, input, mask):
+  logits = policyNetwork(input)
   maskedLogits = logits + mask
   probabilities = jax.nn.softmax(maskedLogits)
   return probabilities, jax.numpy.argmax(probabilities)
 
-def loadModelFromCheckpoint(checkpointPath, actionSpaceSize):
+def getValue(valueNetwork, input):
+  return valueNetwork(input)
+
+def loadPolicyNetworkFromCheckpoint(checkpointPath, actionSpaceSize):
   abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0), actionSpaceSize=actionSpaceSize))
   graphdef, abstractState = nnx.split(abstractModel)
   checkpointer = ocp.StandardCheckpointer()
   stateRestored = checkpointer.restore(checkpointPath, abstractState)
   return nnx.merge(graphdef, stateRestored)
 
-def createNewModel(actionSpaceSize, rngs):
+def loadValueNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: ValueNetwork(rngs=nnx.Rngs(0)))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
+
+def createNewPolicyNetwork(actionSpaceSize, rngs):
   return PolicyNetwork(rngs=rngs, actionSpaceSize=actionSpaceSize)
+
+def createNewValueNetwork(rngs):
+  return ValueNetwork(rngs=rngs)
 
 # ================================================================================================
 # ================================================================================================
@@ -66,10 +125,10 @@ class InferenceClass:
     print(f'Loading model from {checkpointPath}')
 
     # Load the model from checkpoint
-    self.policyNetwork = loadModelFromCheckpoint(checkpointPath, actionSpaceSize)
+    self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath, actionSpaceSize)
 
     # Compile the inference functions
-    self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
+    # self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
     self.getProbabilitiesAndIndex = nnx.jit(getProbabilitiesAndIndex)
   
   def getProbabilitiesAndSelectedIndex(self, data, mask):
@@ -83,10 +142,57 @@ class InferenceClass:
 # ================================================================================================
 # ================================================================================================
 
+@nnx.jit
+def updateModels(policyGradients, valueGradients, rewards, values, gamma, policyOptimizer, valueOptimizer):
+  def calculateReturns(rewards, gamma):
+    # Calculate returns for all timesteps at once using JAX operations
+    length = len(rewards)
+    indices = jnp.arange(length)[:, None]
+    timesteps = jnp.arange(length)[None, :]
+    mask = timesteps >= indices
+    powers = gamma ** (timesteps - indices)
+    masked_powers = powers * mask
+    masked_rewards = rewards[None, :] * mask
+    returns = jnp.sum(masked_powers * masked_rewards, axis=1)
+    return returns
+
+  def scaleByRank(x, scales):
+    if x.ndim == 1:
+      return x * scales
+    elif x.ndim == 2:
+      return x * scales[:, None]
+    elif x.ndim == 3:
+      return x * scales[:, None, None]
+
+  returns = calculateReturns(rewards, gamma)
+  tdErrors = returns - values
+  discounts = gamma**jnp.arange(len(rewards))
+  policyScale = tdErrors * discounts
+
+  # Stack gradients
+  stackedPolicyGradients = jax.tree.map(lambda *x: jnp.stack(x), *policyGradients)
+  stackedValueGradients = jax.tree.map(lambda *x: jnp.stack(x), *valueGradients)
+
+  # Scale all gradients at once
+  scaledPolicyGradients = jax.tree.map(lambda x: scaleByRank(x, policyScale), stackedPolicyGradients)
+  scaledValueGradients = jax.tree.map(lambda x: -scaleByRank(x, tdErrors), stackedValueGradients)
+
+  # Sum gradients across all timesteps
+  finalPolicyGradient = jax.tree.map(lambda x: jnp.sum(x, axis=0), scaledPolicyGradients)
+  finalValueGradient = jax.tree.map(lambda x: jnp.sum(x, axis=0), scaledValueGradients)
+
+  # Update the models
+  policyOptimizer.update(finalPolicyGradient)
+  valueOptimizer.update(finalValueGradient)
+
+  return jnp.mean(tdErrors), jnp.std(tdErrors)
+
 class TrainingUtilClass:
-  def __init__(self, actionSpaceSize, checkpointName=None):
+  def __init__(self, actionSpaceSize, summaryWriter, checkpointName=None):
+    self.summaryWriter = summaryWriter
     # Initialize RNG
-    self.rngs = nnx.Rngs(0, sampleStream=1)
+    # TODO: Find some way to seed the RNG before creating the models
+    self.rngs = nnx.Rngs(0, myAdditionalStream=1)
 
     # Save the checkpoint path
     self.checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'latest'
@@ -94,27 +200,60 @@ class TrainingUtilClass:
     # Create the model, either from checkpoint or from scratch
     if checkpointName is not None:
       print(f'Loading model from {self.checkpointPath}')
-      self.policyNetwork = loadModelFromCheckpoint(self.checkpointPath, actionSpaceSize)
+      self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.checkpointPath/'policy', actionSpaceSize)
+      self.valueNetwork = loadValueNetworkFromCheckpoint(self.checkpointPath/'value')
     else:
-      self.policyNetwork = createNewModel(actionSpaceSize, self.rngs)
+      self.policyNetwork = createNewPolicyNetwork(actionSpaceSize, self.rngs)
+      self.valueNetwork = createNewValueNetwork(self.rngs)
 
     # Initialize the checkpointer
     self.checkpointer = ocp.StandardCheckpointer()
 
-    # Compile the inference function, to be used later
+    # Compile the policy network inference function
     self.getProbabilityIndexAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndIndex, argnums=1, has_aux=True))
+
+    # Compile the value network inference function
+    self.getValueAndValueGradient = nnx.jit(nnx.value_and_grad(getValue))
   
   def setSeed(self, seed):
-    self.rngs = nnx.Rngs(0, sampleStream=seed)
+    self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
 
-  def getGradientAndIndex(self, data, mask):
-    ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.sampleStream(), self.policyNetwork, data, mask)
+  def logLogitStatistics(self, input, episodeIndex):
+    logits = self.policyNetwork(input)
+    self.summaryWriter.add_histogram('logits', logits, episodeIndex)
+
+  def getPolicyGradientAndIndex(self, data, mask):
+    ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, data, mask)
     return gradient, index
 
-  def update(self, gradient, reward, learningRate):
-    compiledUpdate(self.policyNetwork, gradient, reward, learningRate)
+  def getValueGradientAndValue(self, data):
+    (value, gradient) = self.getValueAndValueGradient(self.valueNetwork, data)
+    return gradient, value
+
+  def updatePolicyNetwork(self, gradient, tdError, learningRate, l2Regularization):
+    compiledUpdate(self.policyNetwork, gradient, tdError, learningRate, l2Regularization)
+
+  def updateValueNetwork(self, gradient, tdError, learningRate, l2Regularization):
+    compiledUpdate(self.valueNetwork, gradient, tdError, learningRate, l2Regularization)
+
+  def initializePolicyOptimizer(self, learningRate):
+    tx = optax.adam(learning_rate=learningRate)
+    self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
+
+  def initializeValueOptimizer(self, learningRate):
+    tx = optax.adam(learning_rate=learningRate)
+    self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
+
+  def train(self, policyGradients, valueGradients, rewards, values, gamma, episodeIndex):
+    tdMean, tdStddev = updateModels(policyGradients, valueGradients, jnp.asarray(rewards), jnp.asarray(values), gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
+    self.summaryWriter.add_scalar("episode/tdErrorMean", tdMean, episodeIndex)
+    self.summaryWriter.add_scalar("episode/tdErrorStdDev", tdStddev, episodeIndex)
   
   def saveCheckpoint(self):
-    _, state = nnx.split(self.policyNetwork)
-    self.checkpointer.save(self.checkpointPath, state, force=True)
-    print(f'Saved checkpoint at {self.checkpointPath}')
+    policyNetworkPath = self.checkpointPath / 'policy'
+    valueNetworkPath = self.checkpointPath / 'value'
+    _, policyNetworkState = nnx.split(self.policyNetwork)
+    self.checkpointer.save(policyNetworkPath, policyNetworkState, force=True)
+    _, valueNetworkState = nnx.split(self.valueNetwork)
+    self.checkpointer.save(valueNetworkPath, valueNetworkState, force=True)
+    print(f'Saved checkpoint. Policy network at {policyNetworkPath} and value network at {valueNetworkPath}')

@@ -419,6 +419,8 @@ ActionMap::ActionMap() {
 
   // ===========================================================================================
 
+  std::cout << "There are " << totalActionCount() << " actions" << std::endl;
+
   constexpr bool kTestThatMappingIsABijection{true};
   if constexpr (kTestThatMappingIsABijection) {
     std::cout << "Running test on ActionMap" << std::endl;

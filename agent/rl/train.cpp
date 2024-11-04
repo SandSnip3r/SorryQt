@@ -19,6 +19,20 @@
 #include <functional>
 #include <random>
 
+class ScopedTimer {
+public:
+  ScopedTimer(std::string_view name) : name_(name) {
+    startTime_ = std::chrono::high_resolution_clock::now();
+  }
+  ~ScopedTimer() {
+    auto endTime = std::chrono::high_resolution_clock::now();
+    std::cout << "\"" << name_ << "\" took " << std::chrono::duration_cast<std::chrono::microseconds>(endTime-startTime_).count() << "us" << std::endl;
+  }
+private:
+  const std::string name_;
+  std::chrono::time_point<std::chrono::high_resolution_clock> startTime_;
+};
+
 using namespace std;
 
 // How long does it take an agent acting randomly to finish a game of Sorry?
@@ -54,14 +68,16 @@ namespace py = pybind11;
 
 void trainReinforce() {
   // Load the Python module
+  using namespace pybind11::literals;
   py::module jaxModule = py::module::import("jaxModule");
   py::module tensorboardX = py::module::import("tensorboardX");
-  py::object summaryWriter = tensorboardX.attr("SummaryWriter")();
+  py::object summaryWriter = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
 
   constexpr bool kUseActionMasking{true};
 
   // Initialize python module/model
-  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, "latest");
+  // python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, summaryWriter, "latest");
+  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, summaryWriter);
 
   // Seed all random engines
   constexpr int kSeed = 0x5EED;
@@ -82,8 +98,8 @@ void trainReinforce() {
   Trajectory trajectory;
 
   constexpr int kEpisodeCount = 1'000'000;
-  for (int i=0; i<kEpisodeCount; ++i) {
-    auto episodeStartTime = std::chrono::high_resolution_clock::now();
+  for (int episodeIndex=0; episodeIndex<kEpisodeCount; ++episodeIndex) {
+    ScopedTimer timer("Episode #"+std::to_string(episodeIndex));
     // Construct Sorry game
     // TODO: This construction should be moved outside the loop
     const sorry::engine::PlayerColor playerColor = pickRandomColor();
@@ -95,11 +111,16 @@ void trainReinforce() {
     int actionCount = 0;
     while (!sorry.gameDone()) {
       const std::vector<sorry::engine::Action> actions = sorry.getActions();
-      py::object gradient;
+      py::object policyGradient;
       sorry::engine::Action action;
+      py::object observation = common::makeNumpyObservation(sorry);
+      py::object valueGradient;
+      float value;
+      std::tie(valueGradient, value) = pythonTrainingUtil.getValueGradientAndValue(observation);
+
       if constexpr (kUseActionMasking) {
         // Take an action according to the policy, masked by the valid actions
-        std::tie(gradient, action) = pythonTrainingUtil.getGradientAndAction(sorry, &actions);
+        std::tie(policyGradient, action) = pythonTrainingUtil.getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, &actions);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Current state: " << sorry.toString() << std::endl;
@@ -110,12 +131,12 @@ void trainReinforce() {
           throw std::runtime_error("Invalid action after mask "+action.toString());
         }
       } else {
-        std::tie(gradient, action) = pythonTrainingUtil.getGradientAndAction(sorry);
+        std::tie(policyGradient, action) = pythonTrainingUtil.getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex);
 
         // Terminate the episode if the action is invalid
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           // This action is invalid, terminate the episode.
-          trajectory.pushStep(gradient, -1.0);
+          trajectory.pushStep(policyGradient, -1.0, valueGradient, value);
           break;
         }
       }
@@ -133,18 +154,18 @@ void trainReinforce() {
       }
 
       // Store the observation into a python-read trajectory data structure
-      trajectory.pushStep(gradient, reward);
+      trajectory.pushStep(policyGradient, reward, valueGradient, value);
     }
     // A full trajectory has been generated, now train the model
-    auto trainStartTime = std::chrono::high_resolution_clock::now();
-    pythonTrainingUtil.train(trajectory);
-    auto endTime = std::chrono::high_resolution_clock::now();
-    // std::cout << "Episode #" << i << " took " << actionCount << " actions, " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-trainStartTime).count() << "ms to train, and " << std::chrono::duration_cast<std::chrono::milliseconds>(endTime-episodeStartTime).count() << "ms total" << std::endl;
-    summaryWriter.attr("add_scalar")("episode/action_count", actionCount, i);
+    {
+      ScopedTimer timer("Training");
+      pythonTrainingUtil.train(trajectory, episodeIndex);
+    }
+    summaryWriter.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
 
-    if ((i+1)%100 == 0) {
-      cout << "Episode " << i << " complete" << endl;
-      if ((i+1)%1000 == 0) {
+    if ((episodeIndex+1)%100 == 0) {
+      cout << "Episode " << episodeIndex << " complete" << endl;
+      if ((episodeIndex+1)%1000 == 0) {
         pythonTrainingUtil.saveCheckpoint();
       }
     }
