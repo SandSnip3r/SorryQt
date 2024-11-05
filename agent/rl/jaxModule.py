@@ -1,9 +1,10 @@
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
+import math
+import optax
 import os
 import sys
-import optax
 import pathlib
 from flax import nnx
 from functools import partial
@@ -143,7 +144,7 @@ class InferenceClass:
 # ================================================================================================
 
 @nnx.jit
-def updateModels(policyGradients, valueGradients, rewards, values, gamma, policyOptimizer, valueOptimizer):
+def updateModels(policyGradients, valueGradients, rewards, values, masks, gamma, policyOptimizer, valueOptimizer):
   def calculateReturns(rewards, gamma):
     # Calculate returns for all timesteps at once using JAX operations
     length = len(rewards)
@@ -164,28 +165,45 @@ def updateModels(policyGradients, valueGradients, rewards, values, gamma, policy
     elif x.ndim == 3:
       return x * scales[:, None, None]
 
-  returns = calculateReturns(rewards, gamma)
+  vectorizedCalculateReturns = jax.vmap(calculateReturns, in_axes=(0, None))
+  vectorizedDiscountCalculation = jax.vmap(lambda x, g: g**jnp.arange(len(x)), in_axes=(0, None))
+
+  returns = vectorizedCalculateReturns(rewards, gamma)
   tdErrors = returns - values
-  discounts = gamma**jnp.arange(len(rewards))
+  discounts = vectorizedDiscountCalculation(rewards, gamma)
   policyScale = tdErrors * discounts
 
-  # Stack gradients
-  stackedPolicyGradients = jax.tree.map(lambda *x: jnp.stack(x), *policyGradients)
-  stackedValueGradients = jax.tree.map(lambda *x: jnp.stack(x), *valueGradients)
-
   # Scale all gradients at once
-  scaledPolicyGradients = jax.tree.map(lambda x: scaleByRank(x, policyScale), stackedPolicyGradients)
-  scaledValueGradients = jax.tree.map(lambda x: -scaleByRank(x, tdErrors), stackedValueGradients)
+  vectorizedScale = jax.vmap(scaleByRank, in_axes=(0, 0))
+  scaledPolicyGradients = jax.tree.map(lambda x: vectorizedScale(x, policyScale), policyGradients)
+  scaledValueGradients = jax.tree.map(lambda x: vectorizedScale(x, tdErrors), valueGradients)
+  # Negate value gradients to perform gradient descent
+  scaledValueGradients = jax.tree.map(lambda x: -x, scaledValueGradients)
 
   # Sum gradients across all timesteps
-  finalPolicyGradient = jax.tree.map(lambda x: jnp.sum(x, axis=0), scaledPolicyGradients)
-  finalValueGradient = jax.tree.map(lambda x: jnp.sum(x, axis=0), scaledValueGradients)
+  finalPolicyGradient = jax.tree.map(lambda x: jnp.mean(x, axis=0), jax.tree.map(lambda x: jnp.sum(x, axis=1), scaledPolicyGradients))
+  finalValueGradient = jax.tree.map(lambda x: jnp.mean(x, axis=0), jax.tree.map(lambda x: jnp.sum(x, axis=1), scaledValueGradients))
 
   # Update the models
   policyOptimizer.update(finalPolicyGradient)
   valueOptimizer.update(finalValueGradient)
 
-  return jnp.mean(tdErrors), jnp.std(tdErrors)
+  def calculateMeanAndStdDev(vals, mask):
+    # Compute the mean
+    sum_vals = jnp.sum(vals * mask)  # Sum only masked elements
+    count = jnp.sum(mask)            # Count of unmasked elements
+    mean = sum_vals / count
+
+    # Compute the standard deviation
+    squared_diffs = (vals - mean) ** 2
+    stddev = jnp.sqrt(jnp.sum(squared_diffs * mask) / count)
+
+    return mean, stddev
+
+  vectorizedMeanAndStdDev = jax.vmap(calculateMeanAndStdDev, in_axes=(0, 0))
+  means, stdDevs = vectorizedMeanAndStdDev(tdErrors, masks)
+
+  return jnp.mean(means), jnp.mean(stdDevs)
 
 class TrainingUtilClass:
   def __init__(self, actionSpaceSize, summaryWriter, checkpointName=None):
@@ -237,6 +255,7 @@ class TrainingUtilClass:
     compiledUpdate(self.valueNetwork, gradient, tdError, learningRate, l2Regularization)
 
   def initializePolicyOptimizer(self, learningRate):
+    learningRate = optax.linear_schedule(init_value=learningRate, end_value=learningRate/10, transition_steps=1000, transition_begin=7000)
     tx = optax.adam(learning_rate=learningRate)
     self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
 
@@ -244,8 +263,38 @@ class TrainingUtilClass:
     tx = optax.adam(learning_rate=learningRate)
     self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
 
-  def train(self, policyGradients, valueGradients, rewards, values, gamma, episodeIndex):
-    tdMean, tdStddev = updateModels(policyGradients, valueGradients, jnp.asarray(rewards), jnp.asarray(values), gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
+  def train(self, policyGradientsForTrajectories, valueGradientsForTrajectories, rewardsForTrajectories, valuesForTrajectories, gamma, episodeIndex):
+    # Pad up to the nearest power of 2
+    maxLength = max([len(x) for x in policyGradientsForTrajectories])
+    newLength = int(2**math.ceil(math.log2(maxLength)))
+    # print(f'Lengths: {[len(x) for x in policyGradientsForTrajectories]}')
+    # print(f'Max length is {maxLength}, new length will be {newLength}')
+
+    # Define a padding function
+    def leftPadToMaxSizeWithZeros(x):
+      pad_width = [(newLength - x.shape[0], 0)] + [(0, 0)] * (x.ndim - 1)
+      return jnp.pad(x, pad_width, mode='constant', constant_values=0)
+
+    # Stack and pad policy gradients
+    stackedAndPaddedPolicyGradientsForTrajectories = [jax.tree.map(leftPadToMaxSizeWithZeros, jax.tree.map(lambda *x: jnp.stack(x), *policyGradients)) for policyGradients in policyGradientsForTrajectories]
+    stackedAndPaddedPolicyGradients = jax.tree.map(lambda *x: jnp.stack(x), *stackedAndPaddedPolicyGradientsForTrajectories)
+
+    # Stack and pad value gradients
+    stackedAndPaddedValueGradientsForTrajectories = [jax.tree.map(leftPadToMaxSizeWithZeros, jax.tree.map(lambda *x: jnp.stack(x), *valueGradients)) for valueGradients in valueGradientsForTrajectories]
+    stackedAndPaddedValueGradients = jax.tree.map(lambda *x: jnp.stack(x), *stackedAndPaddedValueGradientsForTrajectories)
+
+    # Stack and pad rewards
+    paddedRewardsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in rewardsForTrajectories]
+    paddedRewards = jnp.stack(paddedRewardsForTrajectories)
+
+    # Stack and pad values
+    paddedValuesForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in valuesForTrajectories]
+    paddedValues = jnp.stack(paddedValuesForTrajectories)
+
+    # Create a mask
+    masks = jnp.concatenate([jnp.concatenate([jnp.zeros(newLength-len(x)), jnp.ones(len(x))]) for x in policyGradientsForTrajectories])[None, :]
+
+    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedValueGradients, paddedRewards, paddedValues, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
     self.summaryWriter.add_scalar("episode/tdErrorMean", tdMean, episodeIndex)
     self.summaryWriter.add_scalar("episode/tdErrorStdDev", tdStddev, episodeIndex)
   

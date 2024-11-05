@@ -8,6 +8,8 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
+#include <vector>
+
 namespace python_wrapper {
 
 class TrainingUtil {
@@ -23,7 +25,7 @@ public:
 
   std::pair<pybind11::object, float> getValueGradientAndValue(pybind11::object observation);
 
-  void train(const Trajectory &trajectory, int episodeIndex);
+  void train(std::vector<Trajectory> &trajectories, int episodeIndex);
   void trainOld(const Trajectory &trajectory, int episodeIndex);
   void saveCheckpoint();
 private:

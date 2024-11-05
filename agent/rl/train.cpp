@@ -30,7 +30,7 @@ public:
   ~ScopedTimer() {
     auto endTime = std::chrono::high_resolution_clock::now();
     const int microseconds = std::chrono::duration_cast<std::chrono::microseconds>(endTime-startTime_).count();
-    summaryWriter_.attr("add_scalar")("timing/"+name_, microseconds, episodeIndex_);
+    summaryWriter_.attr("add_scalar")("timing/"+name_, microseconds/1000000.0, episodeIndex_);
   }
 private:
   py::object summaryWriter_;
@@ -38,6 +38,8 @@ private:
   const int episodeIndex_;
   std::chrono::time_point<std::chrono::high_resolution_clock> startTime_;
 };
+
+// =================================================================================================
 
 // How long does it take an agent acting randomly to finish a game of Sorry?
 void simulateRandomGames() {
@@ -68,45 +70,59 @@ void simulateRandomGames() {
   cout << endl << "Average actions per game: " << avg << endl;
 }
 
-void trainReinforce() {
-  // Load the Python module
-  using namespace pybind11::literals;
-  py::module jaxModule = py::module::import("jaxModule");
-  py::module tensorboardX = py::module::import("tensorboardX");
-  py::object summaryWriter = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
+// =================================================================================================
 
-  constexpr bool kUseActionMasking{true};
+class Trainer {
+public:
+  void trainReinforce() {
+    // Load the Python module
+    using namespace pybind11::literals;
+    py::module jaxModule = py::module::import("jaxModule");
+    py::module tensorboardX = py::module::import("tensorboardX");
+    summaryWriter_ = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
 
-  // Initialize python module/model
-  // python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, summaryWriter, "latest");
-  python_wrapper::TrainingUtil pythonTrainingUtil(jaxModule, summaryWriter);
+    // Initialize python module/model
+    // pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_, "latest");
+    pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_);
 
-  // Seed all random engines
-  constexpr int kSeed = 0x5EED;
-  std::mt19937 randomEngine{kSeed};
-  pythonTrainingUtil.setSeed(kSeed);
+    // Seed all random engines
+    constexpr int kSeed = 0x5EED;
+    randomEngine_ = std::mt19937{kSeed};
+    pythonTrainingUtil_->setSeed(kSeed);
 
-  auto pickRandomColor = [&randomEngine]() {
-    const std::array<sorry::engine::PlayerColor, 4> colors = {
-      sorry::engine::PlayerColor::kGreen,
-      sorry::engine::PlayerColor::kYellow,
-      sorry::engine::PlayerColor::kRed,
-      sorry::engine::PlayerColor::kBlue
-    };
-    std::uniform_int_distribution<size_t> dist(0, colors.size()-1);
-    return colors[dist(randomEngine)];
-  };
+    // Start training
+    constexpr int kEpisodeCount = 1'000'000;
+    int episodeIndex = 0;
+    constexpr int kBatchSize = 1;
+    std::vector<Trajectory> batchTrajectories(kBatchSize);
+    while (episodeIndex<kEpisodeCount) {
+      for (int i=0; i<kBatchSize; ++i) {
+        if (episodeIndex >= kEpisodeCount) {
+          break;
+        }
+        collectTrajectory(episodeIndex, batchTrajectories[i]);
+        ++episodeIndex;
+      }
+      // A batch of trajectories has been generated, now train the model
+      {
+        ScopedTimer timer(summaryWriter_, "training_util_train", episodeIndex);
+        pythonTrainingUtil_->train(batchTrajectories, episodeIndex);
+      }
+    }
+  }
+private:
+  static constexpr bool kUseActionMasking{true};
+  py::object summaryWriter_;
+  std::mt19937 randomEngine_;
+  std::optional<python_wrapper::TrainingUtil> pythonTrainingUtil_;
 
-  Trajectory trajectory;
-
-  constexpr int kEpisodeCount = 1'000'000;
-  for (int episodeIndex=0; episodeIndex<kEpisodeCount; ++episodeIndex) {
-    ScopedTimer timer(summaryWriter, "entire_episode", episodeIndex);
+  void collectTrajectory(int episodeIndex, Trajectory &trajectory) {
+    ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
     // Construct Sorry game
     // TODO: This construction should be moved outside the loop
     const sorry::engine::PlayerColor playerColor = pickRandomColor();
     sorry::engine::Sorry sorry({playerColor});
-    sorry.reset(randomEngine);
+    sorry.reset(randomEngine_);
     trajectory.reset();
 
     // Generate a full trajectory according to the policy
@@ -118,11 +134,11 @@ void trainReinforce() {
       py::object observation = common::makeNumpyObservation(sorry);
       py::object valueGradient;
       float value;
-      std::tie(valueGradient, value) = pythonTrainingUtil.getValueGradientAndValue(observation);
+      std::tie(valueGradient, value) = pythonTrainingUtil_->getValueGradientAndValue(observation);
 
       if constexpr (kUseActionMasking) {
         // Take an action according to the policy, masked by the valid actions
-        std::tie(policyGradient, action) = pythonTrainingUtil.getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, &actions);
+        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, &actions);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Current state: " << sorry.toString() << std::endl;
@@ -133,7 +149,7 @@ void trainReinforce() {
           throw std::runtime_error("Invalid action after mask "+action.toString());
         }
       } else {
-        std::tie(policyGradient, action) = pythonTrainingUtil.getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex);
+        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex);
 
         // Terminate the episode if the action is invalid
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
@@ -144,7 +160,7 @@ void trainReinforce() {
       }
 
       // Take action in game
-      sorry.doAction(action, randomEngine);
+      sorry.doAction(action, randomEngine_);
       ++actionCount;
 
       float reward;
@@ -158,21 +174,29 @@ void trainReinforce() {
       // Store the observation into a python-read trajectory data structure
       trajectory.pushStep(policyGradient, reward, valueGradient, value);
     }
-    // A full trajectory has been generated, now train the model
-    {
-      ScopedTimer timer(summaryWriter, "training_util_train", episodeIndex);
-      pythonTrainingUtil.train(trajectory, episodeIndex);
-    }
-    summaryWriter.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
+    summaryWriter_.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
 
     if ((episodeIndex+1)%100 == 0) {
       cout << "Episode " << episodeIndex << " complete" << endl;
       if ((episodeIndex+1)%1000 == 0) {
-        pythonTrainingUtil.saveCheckpoint();
+        pythonTrainingUtil_->saveCheckpoint();
       }
     }
   }
-}
+
+  sorry::engine::PlayerColor pickRandomColor() {
+    const std::array<sorry::engine::PlayerColor, 4> colors = {
+      sorry::engine::PlayerColor::kGreen,
+      sorry::engine::PlayerColor::kYellow,
+      sorry::engine::PlayerColor::kRed,
+      sorry::engine::PlayerColor::kBlue
+    };
+    std::uniform_int_distribution<size_t> dist(0, colors.size()-1);
+    return colors[dist(randomEngine_)];
+  };
+};
+
+// =================================================================================================
 
 void loadModel() {
   py::module jaxModule = py::module::import("jaxModule");
@@ -209,6 +233,8 @@ void loadModel() {
   }
 }
 
+// =================================================================================================
+
 int main() {
   // Initialize the Python interpreter
   py::scoped_interpreter guard;
@@ -219,6 +245,7 @@ int main() {
   std::cout << "Setting source directory as \"" << sourceDir << "\" (for loading python files)" << std::endl;
   sys.attr("path").cast<py::list>().append(sourceDir);
 
-  trainReinforce();
+  Trainer trainer;
+  trainer.trainReinforce();
   return 0;
 }

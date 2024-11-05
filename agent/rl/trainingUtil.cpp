@@ -65,8 +65,19 @@ std::pair<pybind11::object, float> TrainingUtil::getValueGradientAndValue(pybind
   return {gradient, value};
 }
 
-void TrainingUtil::train(const Trajectory &trajectory, int episodeIndex) {
-  trainingUtilInstance_.attr("train")(trajectory.policyGradients, trajectory.valueGradients, trajectory.rewards, trajectory.values, kGamma, episodeIndex);
+void TrainingUtil::train(std::vector<Trajectory> &trajectories, int episodeIndex) {
+  // Change from an array of structs to struct of arrays
+  std::vector<std::vector<py::object>> policyGradients;
+  std::vector<std::vector<float>> rewards;
+  std::vector<std::vector<py::object>> valueGradients;
+  std::vector<std::vector<float>> values;
+  for (Trajectory &trajectory : trajectories) {
+    policyGradients.push_back(std::move(trajectory.policyGradients));
+    rewards.push_back(std::move(trajectory.rewards));
+    valueGradients.push_back(std::move(trajectory.valueGradients));
+    values.push_back(std::move(trajectory.values));
+  }
+  trainingUtilInstance_.attr("train")(policyGradients, valueGradients, rewards, values, kGamma, episodeIndex);
 }
 
 void TrainingUtil::trainOld(const Trajectory &trajectory, int episodeIndex) {
