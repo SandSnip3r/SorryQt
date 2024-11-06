@@ -50,7 +50,6 @@ void ReinforceAgent::run(const sorry::engine::Sorry &sorry) {
   }
 
   pybind11::tuple probabilitiesAndIndex = inferenceInstance_.attr("getProbabilitiesAndSelectedIndex")(observation, actionMask);
-  // pybind11::tuple probabilitiesAndIndex = inferenceInstance_.attr("getProbabilitiesAndSelectedIndex")(getRandomKey(), observation, actionMask);
   if (probabilitiesAndIndex.size() != 2) {
     throw std::runtime_error("Expected two values from getProbabilitiesAndSelectedIndex");
   }

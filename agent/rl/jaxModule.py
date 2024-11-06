@@ -122,11 +122,12 @@ def createNewValueNetwork(rngs):
 class InferenceClass:
   def __init__(self, actionSpaceSize):
     # Save the checkpoint path
-    checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_1p_any'
+    checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_wbaseline_1p'
     print(f'Loading model from {checkpointPath}')
 
     # Load the model from checkpoint
-    self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath, actionSpaceSize)
+    self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath / 'policy', actionSpaceSize)
+    self.valueNetwork = loadValueNetworkFromCheckpoint(checkpointPath / 'value')
 
     # Compile the inference functions
     # self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
