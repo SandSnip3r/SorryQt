@@ -31,31 +31,18 @@ void TrainingUtil::setSeed(int seed) {
 }
 
 std::pair<py::object, sorry::engine::Action> TrainingUtil::getPolicyGradientAndAction(
-    pybind11::object observation,
+    py::object observation,
     sorry::engine::PlayerColor playerColor,
     int episodeIndex,
-    const std::vector<sorry::engine::Action> *validActions) {
-  py::tuple result;
-  if (validActions != nullptr) {
-    // Directly create the action mask for valid actions as a numpy array
-    py::array_t<float> actionMask(ActionMap::getInstance().totalActionCount());
-    // Initialize all values to negative infinity
-    actionMask.attr("fill")(-std::numeric_limits<float>::infinity());
-    for (const sorry::engine::Action &action : *validActions) {
-      const int actionIndex = ActionMap::getInstance().actionToIndex(action);
-      actionMask.mutable_at(actionIndex) = 0.0;
-    }
-    result = trainingUtilInstance_.attr("getPolicyGradientAndIndex")(observation, actionMask);
-  } else {
-    result = trainingUtilInstance_.attr("getPolicyGradientAndIndex")(observation);
-  }
+    const std::vector<sorry::engine::Action> &validActions) {
+  std::vector<std::vector<int>> actionsArray = common::createArrayOfActions(validActions);
+  py::tuple result = trainingUtilInstance_.attr("getPolicyGradientAndActionTuple")(observation, actionsArray);
   // trainingUtilInstance_.attr("logLogitStatistics")(observation, episodeIndex);
 
   // Take an action according to the policy
   py::object gradient = result[0];
-  const int index = result[1].cast<int>();
-  const sorry::engine::Action action = ActionMap::getInstance().indexToActionForPlayer(index, playerColor);
-  return {gradient, action};
+  py::tuple tuple = result[1].cast<py::tuple>();
+  return {gradient, common::actionFromTuple(tuple, playerColor)};
 }
 
 std::pair<pybind11::object, float> TrainingUtil::getValueGradientAndValue(pybind11::object observation) {
@@ -78,52 +65,6 @@ void TrainingUtil::train(std::vector<Trajectory> &trajectories, int episodeIndex
     values.push_back(std::move(trajectory.values));
   }
   trainingUtilInstance_.attr("train")(policyGradients, valueGradients, rewards, values, kGamma, episodeIndex);
-}
-
-void TrainingUtil::trainOld(const Trajectory &trajectory, int episodeIndex) {
-  constexpr float kGamma = 0.99;
-  constexpr float kL2Regularization = 0.01;
-  std::vector<float> tdErrors;
-  tdErrors.reserve(trajectory.size());
-
-  // Iterate backward through the trajectory, calculate the return, and update the parameters.
-  for (int i=0; i<trajectory.size(); ++i) {
-    // Calculate the return
-    float returnToEnd = 0.0;
-    for (int k=i+1; k<trajectory.size(); ++k) {
-      returnToEnd += trajectory.rewards[k] + std::pow(kGamma, k-i-1);
-    }
-    // returnToEnd = trajectory.rewards[i] + kGamma * returnToEnd;
-    // Calculate the td-error
-    const float tdError = returnToEnd - trajectory.values[i];
-    tdErrors.push_back(tdError);
-    // std::cout << "TD Error: " << tdError << std::endl;
-
-    // Scale the gradients
-    auto locals = pybind11::dict("policyGradient"_a=trajectory.policyGradients[i],
-                                 "valueGradient"_a=trajectory.valueGradients[i],
-                                 "tdError"_a=tdError,
-                                 "gamma"_a=kGamma,
-                                 "i"_a=i);
-    py::exec(R"(
-      scaledPolicyGradient = jax.tree_util.tree_map(lambda x, tdError=tdError, gamma=gamma, i=i: x * tdError * gamma**i, policyGradient)
-      scaledValueGradient = jax.tree_util.tree_map(lambda x, tdError=tdError: x * tdError, valueGradient)
-    )", jaxModule_.attr("__dict__"), locals);
-    py::object scaledPolicyGradient = locals["scaledPolicyGradient"];
-    py::object scaledValueGradient = locals["scaledValueGradient"];
-
-    // Update the model parameters
-    policyOptimizer_.attr("update")(scaledPolicyGradient);
-    valueOptimizer_.attr("update")(scaledValueGradient);
-  }
-
-  float meanTdError = std::accumulate(tdErrors.begin(), tdErrors.end(), 0.0f) / tdErrors.size();
-  float sumSquaredDiffs = std::accumulate(tdErrors.begin(), tdErrors.end(), 0.0f, [meanTdError](float sum, float tdError) {
-    return sum + std::pow(tdError - meanTdError, 2);
-  });
-  float stddevTdError = std::sqrt(sumSquaredDiffs / tdErrors.size());
-  summaryWriter_.attr("add_scalar")("episode/tdErrorMean", meanTdError, episodeIndex);
-  summaryWriter_.attr("add_scalar")("episode/tdErrorStdDev", stddevTdError, episodeIndex);
 }
 
 void TrainingUtil::saveCheckpoint() {

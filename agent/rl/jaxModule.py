@@ -10,21 +10,31 @@ from flax import nnx
 from functools import partial
 
 class PolicyNetwork(nnx.Module):
-  def __init__(self, rngs, actionSpaceSize):
-    self.linear1 = nnx.Linear(in_features=327, out_features=32, rngs=rngs)
-    self.linear2 = nnx.Linear(in_features=32, out_features=actionSpaceSize, rngs=rngs)
+  def __init__(self, rngs):
+    stateLinearOutputSize = 512
+    actionTypeCount = 5
+    cardCount = 11
+    positionCount = 67
+    self.stateLinear = nnx.Linear(in_features=327, out_features=stateLinearOutputSize, rngs=rngs)
+
+    self.actionTypeLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=actionTypeCount, rngs=rngs)
+    self.cardLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=cardCount, rngs=rngs)
+    self.move1SourceLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
+    self.move1DestLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
+    self.move2SourceLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
+    self.move2DestLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
 
   def __call__(self, x):
-    x = self.linear1(x)
-    # assert not jnp.isnan(x).any(), "NaN detected after linear1"
+    x = self.stateLinear(x)
     x = jax.nn.relu(x)
-    # assert not jnp.isnan(x).any(), "NaN detected after ReLU"
-    # Directly return the logits for
-    #  1. Sampling (jax.random.categorical takes logits)
-    #  2. Calculating probabilities
-    x = self.linear2(x)
-    # assert not jnp.isnan(x).any(), "NaN detected after linear2"
-    return x
+    return {
+      'actionTypeLogits': self.actionTypeLinear(x),
+      'cardLogits': self.cardLinear(x),
+      'move1SourceLogits': self.move1SourceLinear(x),
+      'move1DestLogits': self.move1DestLinear(x),
+      'move2SourceLogits': self.move2SourceLinear(x),
+      'move2DestLogits': self.move2DestLinear(x)
+    }
 
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
@@ -58,33 +68,112 @@ def printGradientInfo(gradients):
   jax.debug.print("Max gradient value: {max_grad} at index {max_idx}", max_grad=max_grad, max_idx=max_idx)
   jax.debug.print("Min gradient value: {min_grad} at index {min_idx}", min_grad=min_grad, min_idx=min_idx)
 
-@partial(nnx.jit)
-def compiledUpdate(model, gradient, tdError, learningRate, l2Regularization):
-  _, params, rest = nnx.split(model, nnx.Param, ...)
-  # params = jax.tree.map(lambda p, g: p + learningRate * tdError * g, params, gradient)
-  params = jax.tree.map(lambda p, g: p + learningRate * tdError * g - l2Regularization * p, params, gradient)
-  nnx.update(model, nnx.GraphState.merge(params, rest))
+def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillValidActionMask):
+  # These are the concrete sizes of the different one-hot vectors for the different parts of the action
+  sizes = (5,11,67,67,67,67)
 
-def getProbabilityAndIndex(rngKey, policyNetwork, input, mask):
-  # assert not jnp.isnan(input).any(), "NaN detected in input"
+  # These are the one-hot masks for each part of all of the given actions
+  masks = {
+    'actionTypeMask': jax.nn.one_hot(actions[:,0], sizes[0]),
+    'cardMask': jax.nn.one_hot(actions[:,1], sizes[1]),
+    'move1SourceMask': jax.nn.one_hot(actions[:,2], sizes[2]),
+    'move1DestMask': jax.nn.one_hot(actions[:,3], sizes[3]),
+    'move2SourceMask': jax.nn.one_hot(actions[:,4], sizes[4]),
+    'move2DestMask': jax.nn.one_hot(actions[:,5], sizes[5])
+  }
+
+  # Invoke the model to get the logits for every part of the action
   logits = policyNetwork(input)
-  # `mask` is a 1D array of size `actionSpaceSize`, where the index of the action to be masked is set to -inf, and all other indices are set to 0
-  maskedLogits = logits + mask
-  selectedIndex = jax.random.categorical(rngKey, maskedLogits)
-  probabilities = jax.nn.softmax(maskedLogits)
-  oneHotIndex = jax.nn.one_hot(selectedIndex, probabilities.shape[-1])
-  selectedProbability = jnp.sum(jax.lax.stop_gradient(oneHotIndex) * probabilities)
-  # if jnp.isnan(jax.lax.stop_gradient(selectedProbability)).any():
-  #   jnp.set_printoptions(threshold=sys.maxsize)
-  #   jax.debug.print(f"Logits: {jax.lax.stop_gradient(logits)}")
-  #   assert not jnp.isnan(logits).any(), "NaN detected in logits"
-  #   jax.debug.print(f"Masked Logits: {jax.lax.stop_gradient(maskedLogits)}")
-  #   assert not jnp.isnan(maskedLogits).any(), "NaN detected in maskedLogits"
-  #   jax.debug.print(f"Selected Index: {jax.lax.stop_gradient(selectedIndex)}")
-  #   jax.debug.print(f"Probabilities: {jax.lax.stop_gradient(probabilities)}")
-  #   assert not jnp.isnan(probabilities).any(), "NaN detected in probabilities"
-  #   jax.debug.print(f'Selected probability: {jax.lax.stop_gradient(selectedProbability)}')
-  return -jnp.log(selectedProbability), selectedIndex
+
+  # Filter out invalid action types via the masks computed on the given available actions
+  actionTypeMask = masks['actionTypeMask']
+  stillValidCardMasks = jnp.where(stillValidActionMask, actionTypeMask, jnp.zeros_like(actionTypeMask))
+  stillValidActionTypeMask = jnp.where(jnp.any(stillValidCardMasks, axis=0), 0, -jnp.inf)
+  actionTypeLogits = logits['actionTypeLogits']
+  maskedActionTypeLogits = actionTypeLogits + stillValidActionTypeMask
+
+  # Select an action type given the logits and the mask
+  selectedActionType = jax.random.categorical(rngKey, maskedActionTypeLogits)
+
+  # Given the selected action type, narrow down the actions used for creating the next mask, for the card type
+  selectedActionOneHot = jax.nn.one_hot(selectedActionType, sizes[0])
+  stillValidActionMask = jnp.logical_and(stillValidActionMask, jnp.any(jnp.logical_and(masks['actionTypeMask'], selectedActionOneHot), axis=1, keepdims=True))
+  cardMask = masks["cardMask"]
+  stillValidCardMasks = jnp.where(stillValidActionMask, cardMask, jnp.zeros_like(cardMask))
+  finalCardMask = jnp.where(jnp.any(stillValidCardMasks, axis=0), 0, -jnp.inf)
+  cardLogits = logits['cardLogits']
+  maskedCardLogits = cardLogits + finalCardMask
+
+  # Select a card given the logits and the mask
+  selectedCard = jax.random.categorical(rngKey, maskedCardLogits)
+
+  # Given the selected card type, narrow down the actions used for creating the next mask, for the first move source
+  selectedCardOneHot = jax.nn.one_hot(selectedCard, sizes[1])
+  stillValidActionMask = jnp.logical_and(stillValidActionMask, jnp.any(jnp.logical_and(masks['cardMask'], selectedCardOneHot), axis=1, keepdims=True))
+  move1SourceMask = masks["move1SourceMask"]
+  stillValidMove1SourceMasks = jnp.where(stillValidActionMask, move1SourceMask, jnp.zeros_like(move1SourceMask))
+  finalMove1SourceMask = jnp.where(jnp.any(stillValidMove1SourceMasks, axis=0), 0, -jnp.inf)
+  move1SourceLogits = logits['move1SourceLogits']
+  maskedMove1SourceLogits = move1SourceLogits + finalMove1SourceMask
+
+  # Select a first move source given the logits and the mask
+  selectedMove1Source = jax.random.categorical(rngKey, maskedMove1SourceLogits)
+
+  # Given the selected first move source, narrow down the actions used for creating the next mask, for the first move destination
+  selectedMove1SourceOneHot = jax.nn.one_hot(selectedMove1Source, sizes[2])
+  stillValidActionMask = jnp.logical_and(stillValidActionMask, jnp.any(jnp.logical_and(masks['move1SourceMask'], selectedMove1SourceOneHot), axis=1, keepdims=True))
+  move1DestMask = masks["move1DestMask"]
+  stillValidMove1DestMasks = jnp.where(stillValidActionMask, move1DestMask, jnp.zeros_like(move1DestMask))
+  finalMove1DestMask = jnp.where(jnp.any(stillValidMove1DestMasks, axis=0), 0, -jnp.inf)
+  move1DestLogits = logits['move1DestLogits']
+  maskedMove1DestLogits = move1DestLogits + finalMove1DestMask
+
+  # Select a first move destination given the logits and the mask
+  selectedMove1Dest = jax.random.categorical(rngKey, maskedMove1DestLogits)
+
+  # Given the selected first move destination, narrow down the actions used for creating the next mask, for the second move source
+  selectedMove1DestOneHot = jax.nn.one_hot(selectedMove1Dest, sizes[3])
+  stillValidActionMask = jnp.logical_and(stillValidActionMask, jnp.any(jnp.logical_and(masks['move1DestMask'], selectedMove1DestOneHot), axis=1, keepdims=True))
+  move2SourceMask = masks["move2SourceMask"]
+  stillValidMove2SourceMasks = jnp.where(stillValidActionMask, move2SourceMask, jnp.zeros_like(move2SourceMask))
+  finalMove2SourceMask = jnp.where(jnp.any(stillValidMove2SourceMasks, axis=0), 0, -jnp.inf)
+  move2SourceLogits = logits['move2SourceLogits']
+  maskedMove2SourceLogits = move2SourceLogits + finalMove2SourceMask
+
+  # Select a second move source given the logits and the mask
+  selectedMove2Source = jax.random.categorical(rngKey, maskedMove2SourceLogits)
+
+  # Given the selected second move source, narrow down the actions used for creating the next mask, for the second move destination
+  selectedMove2SourceOneHot = jax.nn.one_hot(selectedMove2Source, sizes[4])
+  stillValidActionMask = jnp.logical_and(stillValidActionMask, jnp.any(jnp.logical_and(masks['move2SourceMask'], selectedMove2SourceOneHot), axis=1, keepdims=True))
+  move2DestMask = masks["move2DestMask"]
+  stillValidMove2DestMasks = jnp.where(stillValidActionMask, move2DestMask, jnp.zeros_like(move2DestMask))
+  finalMove2DestMask = jnp.where(jnp.any(stillValidMove2DestMasks, axis=0), 0, -jnp.inf)
+  move2DestLogits = logits['move2DestLogits']
+  maskedMove2DestLogits = move2DestLogits + finalMove2DestMask
+
+  # Select a second move destination given the logits and the mask
+  selectedMove2Dest = jax.random.categorical(rngKey, maskedMove2DestLogits)
+
+  # Calculate the overall probability of the selected action by multiplying the probabilities of each part
+  actionTypeProbabilities = jax.nn.softmax(maskedActionTypeLogits)
+  actionTypeProbability = jnp.sum(jax.lax.stop_gradient(selectedActionOneHot) * actionTypeProbabilities)
+  cardProbabilities = jax.nn.softmax(maskedCardLogits)
+  cardProbability = jnp.sum(jax.lax.stop_gradient(selectedCardOneHot) * cardProbabilities)
+  move1SourceProbabilities = jax.nn.softmax(maskedMove1SourceLogits)
+  move1SourceProbability = jnp.sum(jax.lax.stop_gradient(selectedMove1SourceOneHot) * move1SourceProbabilities)
+  move1DestProbabilities = jax.nn.softmax(maskedMove1DestLogits)
+  move1DestProbability = jnp.sum(jax.lax.stop_gradient(selectedMove1DestOneHot) * move1DestProbabilities)
+  move2SourceProbabilities = jax.nn.softmax(maskedMove2SourceLogits)
+  move2SourceProbability = jnp.sum(jax.lax.stop_gradient(selectedMove2SourceOneHot) * move2SourceProbabilities)
+  move2DestProbabilities = jax.nn.softmax(maskedMove2DestLogits)
+  selectedMove2DestOneHot = jax.nn.one_hot(selectedMove2Dest, sizes[5])
+  move2DestProbability = jnp.sum(jax.lax.stop_gradient(selectedMove2DestOneHot) * move2DestProbabilities)
+
+  # TODO: At any point, if stillValidActionMask only has 1 True, we can simply return that action
+  overallProbability = actionTypeProbability*cardProbability*move1SourceProbability*move1DestProbability*move2SourceProbability*move2DestProbability
+  actionTuple = (selectedActionType.astype(int), selectedCard.astype(int), selectedMove1Source.astype(int), selectedMove1Dest.astype(int), selectedMove2Source.astype(int), selectedMove2Dest.astype(int))
+  return (-jnp.log(overallProbability), actionTuple)
 
 def getProbabilitiesAndIndex(policyNetwork, input, mask):
   logits = policyNetwork(input)
@@ -109,8 +198,8 @@ def loadValueNetworkFromCheckpoint(checkpointPath):
   stateRestored = checkpointer.restore(checkpointPath, abstractState)
   return nnx.merge(graphdef, stateRestored)
 
-def createNewPolicyNetwork(actionSpaceSize, rngs):
-  return PolicyNetwork(rngs=rngs, actionSpaceSize=actionSpaceSize)
+def createNewPolicyNetwork(rngs):
+  return PolicyNetwork(rngs=rngs)
 
 def createNewValueNetwork(rngs):
   return ValueNetwork(rngs=rngs)
@@ -130,7 +219,7 @@ class InferenceClass:
     self.valueNetwork = loadValueNetworkFromCheckpoint(checkpointPath / 'value')
 
     # Compile the inference functions
-    # self.getProbabilityIndex = nnx.jit(getProbabilityAndIndex)
+    # self.getProbabilityIndex = nnx.jit(getProbabilityAndActionTuple)
     self.getProbabilitiesAndIndex = nnx.jit(getProbabilitiesAndIndex)
   
   def getProbabilitiesAndSelectedIndex(self, data, mask):
@@ -222,14 +311,15 @@ class TrainingUtilClass:
       self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.checkpointPath/'policy', actionSpaceSize)
       self.valueNetwork = loadValueNetworkFromCheckpoint(self.checkpointPath/'value')
     else:
-      self.policyNetwork = createNewPolicyNetwork(actionSpaceSize, self.rngs)
+      self.policyNetwork = createNewPolicyNetwork(self.rngs)
       self.valueNetwork = createNewValueNetwork(self.rngs)
 
     # Initialize the checkpointer
     self.checkpointer = ocp.StandardCheckpointer()
 
     # Compile the policy network inference function
-    self.getProbabilityIndexAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndIndex, argnums=1, has_aux=True))
+    # self.getProbabilityActionTupleAndGradient = nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True)
+    self.getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
 
     # Compile the value network inference function
     self.getValueAndValueGradient = nnx.jit(nnx.value_and_grad(getValue))
@@ -241,22 +331,24 @@ class TrainingUtilClass:
     logits = self.policyNetwork(input)
     self.summaryWriter.add_histogram('logits', logits, episodeIndex)
 
-  def getPolicyGradientAndIndex(self, data, mask):
-    ((logProbability, index), gradient) = self.getProbabilityIndexAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, data, mask)
-    return gradient, index
+  def getPolicyGradientAndActionTuple(self, data, actions):
+    # Pad actions up to the nearest power of 2
+    newActionsLength = int(2**math.ceil(math.log2(len(actions))))
+    originalSize = len(actions)
+    padSize = newActionsLength - len(actions)
+    actions = jnp.asarray(actions, dtype=jnp.int32)
+    actions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
+    validActions = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
+    validActions = validActions[:, None]
+    ((logProbability, actionTuple), gradient) = self.getProbabilityActionTupleAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, data, actions, validActions)
+    return gradient, actionTuple
 
   def getValueGradientAndValue(self, data):
     (value, gradient) = self.getValueAndValueGradient(self.valueNetwork, data)
     return gradient, value
 
-  def updatePolicyNetwork(self, gradient, tdError, learningRate, l2Regularization):
-    compiledUpdate(self.policyNetwork, gradient, tdError, learningRate, l2Regularization)
-
-  def updateValueNetwork(self, gradient, tdError, learningRate, l2Regularization):
-    compiledUpdate(self.valueNetwork, gradient, tdError, learningRate, l2Regularization)
-
   def initializePolicyOptimizer(self, learningRate):
-    learningRate = optax.linear_schedule(init_value=learningRate, end_value=learningRate/10, transition_steps=1000, transition_begin=7000)
+    # learningRate = optax.linear_schedule(init_value=learningRate, end_value=learningRate/10, transition_steps=1000, transition_begin=7000)
     tx = optax.adam(learning_rate=learningRate)
     self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
 
@@ -286,24 +378,31 @@ class TrainingUtilClass:
 
     # Stack and pad rewards
     paddedRewardsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in rewardsForTrajectories]
-    paddedRewards = jnp.stack(paddedRewardsForTrajectories)
+    stackedAndPaddedRewards = jnp.stack(paddedRewardsForTrajectories)
 
     # Stack and pad values
     paddedValuesForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in valuesForTrajectories]
-    paddedValues = jnp.stack(paddedValuesForTrajectories)
+    stackedAndPaddedValues = jnp.stack(paddedValuesForTrajectories)
 
     # Create a mask
-    masks = jnp.concatenate([jnp.concatenate([jnp.zeros(newLength-len(x)), jnp.ones(len(x))]) for x in policyGradientsForTrajectories])[None, :]
+    masks = jnp.asarray([jnp.concatenate([jnp.zeros(newLength-len(x)), jnp.ones(len(x))]) for x in policyGradientsForTrajectories])
 
-    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedValueGradients, paddedRewards, paddedValues, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
+    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedValueGradients, stackedAndPaddedRewards, stackedAndPaddedValues, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
     self.summaryWriter.add_scalar("episode/tdErrorMean", tdMean, episodeIndex)
     self.summaryWriter.add_scalar("episode/tdErrorStdDev", tdStddev, episodeIndex)
   
   def saveCheckpoint(self):
     policyNetworkPath = self.checkpointPath / 'policy'
-    valueNetworkPath = self.checkpointPath / 'value'
     _, policyNetworkState = nnx.split(self.policyNetwork)
     self.checkpointer.save(policyNetworkPath, policyNetworkState, force=True)
+
+    valueNetworkPath = self.checkpointPath / 'value'
     _, valueNetworkState = nnx.split(self.valueNetwork)
     self.checkpointer.save(valueNetworkPath, valueNetworkState, force=True)
-    print(f'Saved checkpoint. Policy network at {policyNetworkPath} and value network at {valueNetworkPath}')
+
+    policyOptimizerStatePath = self.checkpointPath / 'policy_optimizer'
+    self.checkpointer.save(policyOptimizerStatePath, self.policyNetworkOptimizer.opt_state, force=True)
+
+    valueOptimizerStatePath = self.checkpointPath / 'value_optimizer'
+    self.checkpointer.save(valueOptimizerStatePath, self.valueNetworkOptimizer.opt_state, force=True)
+    print(f'Saved checkpoints at {self.checkpointPath}')

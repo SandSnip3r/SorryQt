@@ -21,12 +21,11 @@ public:
       pybind11::object observation,
       sorry::engine::PlayerColor playerColor,
       int episodeIndex,
-      const std::vector<sorry::engine::Action> *validActions = nullptr);
+      const std::vector<sorry::engine::Action> &validActions);
 
   std::pair<pybind11::object, float> getValueGradientAndValue(pybind11::object observation);
 
   void train(std::vector<Trajectory> &trajectories, int episodeIndex);
-  void trainOld(const Trajectory &trajectory, int episodeIndex);
   void saveCheckpoint();
 private:
   static constexpr float kGamma{0.99};

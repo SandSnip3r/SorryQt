@@ -5,6 +5,21 @@
 
 namespace sorry::engine {
 
+Action::Action(PlayerColor playerColor,
+               ActionType actionType,
+               Card card,
+               int move1Source,
+               int move1Destination,
+               int move2Source,
+               int move2Destination)
+      : playerColor(playerColor),
+        actionType(actionType),
+        card(card),
+        move1Source(move1Source),
+        move1Destination(move1Destination),
+        move2Source(move2Source),
+        move2Destination(move2Destination) {}
+
 Action Action::discard(PlayerColor playerColor, Card card) {
   Action a;
   a.playerColor = playerColor;

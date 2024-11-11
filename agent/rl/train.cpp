@@ -111,7 +111,6 @@ public:
     }
   }
 private:
-  static constexpr bool kUseActionMasking{true};
   py::object summaryWriter_;
   std::mt19937 randomEngine_;
   std::optional<python_wrapper::TrainingUtil> pythonTrainingUtil_;
@@ -132,31 +131,22 @@ private:
       py::object policyGradient;
       sorry::engine::Action action;
       py::object observation = common::makeNumpyObservation(sorry);
+      // TODO: Rather than getting the value & value gradient here, I could simply save the observation in the trajectory and get it later during training.
       py::object valueGradient;
       float value;
       std::tie(valueGradient, value) = pythonTrainingUtil_->getValueGradientAndValue(observation);
 
-      if constexpr (kUseActionMasking) {
-        // Take an action according to the policy, masked by the valid actions
-        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, &actions);
+      // Take an action according to the policy, masked by the valid actions
+      std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, actions);
+      // std::cout << "Taking action " << action.toString() << std::endl;
 
-        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
-          std::cout << "Current state: " << sorry.toString() << std::endl;
-          std::cout << "Valid actions were:" << std::endl;
-          for (const sorry::engine::Action &a : actions) {
-            std::cout << "  " << a.toString() << std::endl;
-          }
-          throw std::runtime_error("Invalid action after mask "+action.toString());
+      if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
+        std::cout << "Current state: " << sorry.toString() << std::endl;
+        std::cout << "Valid actions were:" << std::endl;
+        for (const sorry::engine::Action &a : actions) {
+          std::cout << "  " << a.toString() << std::endl;
         }
-      } else {
-        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex);
-
-        // Terminate the episode if the action is invalid
-        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
-          // This action is invalid, terminate the episode.
-          trajectory.pushStep(policyGradient, -1.0, valueGradient, value);
-          break;
-        }
+        throw std::runtime_error("Invalid action after mask "+action.toString());
       }
 
       // Take action in game
@@ -176,9 +166,9 @@ private:
     }
     summaryWriter_.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
 
-    if ((episodeIndex+1)%100 == 0) {
+    if ((episodeIndex+1)%10 == 0) {
       cout << "Episode " << episodeIndex << " complete" << endl;
-      if ((episodeIndex+1)%1000 == 0) {
+      if ((episodeIndex+1)%10 == 0) {
         pythonTrainingUtil_->saveCheckpoint();
       }
     }

@@ -1,49 +1,10 @@
 #include "actionMap.hpp"
+#include "common.hpp"
 
 #include <sorry/engine/sorry.hpp>
 
 #include <iostream>
 #include <stdexcept>
-
-namespace {
-
-sorry::engine::Card cardIndexToCard(size_t index) {
-  // Since the values of card enums are not a contiguous range, we can't just cast the index to a card.
-  switch (index) {
-    case 0: return sorry::engine::Card::kOne;
-    case 1: return sorry::engine::Card::kTwo;
-    case 2: return sorry::engine::Card::kThree;
-    case 3: return sorry::engine::Card::kFour;
-    case 4: return sorry::engine::Card::kFive;
-    case 5: return sorry::engine::Card::kSeven;
-    case 6: return sorry::engine::Card::kEight;
-    case 7: return sorry::engine::Card::kTen;
-    case 8: return sorry::engine::Card::kEleven;
-    case 9: return sorry::engine::Card::kTwelve;
-    case 10: return sorry::engine::Card::kSorry;
-    default: throw std::runtime_error("Invalid card index");
-  }
-}
-
-size_t cardToCardIndex(sorry::engine::Card card) {
-  // Since the values of card enums are not a contiguous range, we can't just cast the card to an index.
-  switch (card) {
-    case sorry::engine::Card::kOne: return 0;
-    case sorry::engine::Card::kTwo: return 1;
-    case sorry::engine::Card::kThree: return 2;
-    case sorry::engine::Card::kFour: return 3;
-    case sorry::engine::Card::kFive: return 4;
-    case sorry::engine::Card::kSeven: return 5;
-    case sorry::engine::Card::kEight: return 6;
-    case sorry::engine::Card::kTen: return 7;
-    case sorry::engine::Card::kEleven: return 8;
-    case sorry::engine::Card::kTwelve: return 9;
-    case sorry::engine::Card::kSorry: return 10;
-    default: throw std::runtime_error("Invalid card");
-  }
-}
-
-}
 
 ActionMap::ActionMap() {
   using sorry::engine::Action;
@@ -60,13 +21,13 @@ ActionMap::ActionMap() {
   // The first 11 actions are for discarding specific card types.
   addActions(11,
     [&](size_t index, sorry::engine::PlayerColor playerColor) {
-      return Action::discard(playerColor, cardIndexToCard(index));
+      return Action::discard(playerColor, common::cardIndexToCard(index));
     },
     [&](const Action &action) -> std::optional<size_t> {
       if (action.actionType != Action::ActionType::kDiscard) {
         return std::nullopt;
       }
-      return cardToCardIndex(action.card);
+      return common::cardToCardIndex(action.card);
     });
 
   // ===================================== MOVE FROM START =====================================
