@@ -19,7 +19,7 @@ ReinforceAgent::ReinforceAgent() {
   sys.attr("path").cast<pybind11::list>().append(std::string(SOURCE_DIR));
   jaxModule_ = pybind11::module::import("jaxModule");
   pybind11::object InferenceClass = jaxModule_.attr("InferenceClass");
-  inferenceInstance_ = InferenceClass(ActionMap::getInstance().totalActionCount());
+  inferenceInstance_ = InferenceClass();
 }
 
 void ReinforceAgent::seed(int seed) {

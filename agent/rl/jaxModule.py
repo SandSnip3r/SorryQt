@@ -184,8 +184,8 @@ def getProbabilitiesAndIndex(policyNetwork, input, mask):
 def getValue(valueNetwork, input):
   return valueNetwork(input)
 
-def loadPolicyNetworkFromCheckpoint(checkpointPath, actionSpaceSize):
-  abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0), actionSpaceSize=actionSpaceSize))
+def loadPolicyNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0)))
   graphdef, abstractState = nnx.split(abstractModel)
   checkpointer = ocp.StandardCheckpointer()
   stateRestored = checkpointer.restore(checkpointPath, abstractState)
@@ -209,13 +209,13 @@ def createNewValueNetwork(rngs):
 # ================================================================================================
 
 class InferenceClass:
-  def __init__(self, actionSpaceSize):
+  def __init__(self):
     # Save the checkpoint path
-    checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_wbaseline_1p'
+    checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_smaller_model_1p'
     print(f'Loading model from {checkpointPath}')
 
     # Load the model from checkpoint
-    self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath / 'policy', actionSpaceSize)
+    self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath / 'policy')
     self.valueNetwork = loadValueNetworkFromCheckpoint(checkpointPath / 'value')
 
     # Compile the inference functions
@@ -296,7 +296,7 @@ def updateModels(policyGradients, valueGradients, rewards, values, masks, gamma,
   return jnp.mean(means), jnp.mean(stdDevs)
 
 class TrainingUtilClass:
-  def __init__(self, actionSpaceSize, summaryWriter, checkpointName=None):
+  def __init__(self, summaryWriter, checkpointName=None):
     self.summaryWriter = summaryWriter
     # Initialize RNG
     # TODO: Find some way to seed the RNG before creating the models
@@ -308,7 +308,7 @@ class TrainingUtilClass:
     # Create the model, either from checkpoint or from scratch
     if checkpointName is not None:
       print(f'Loading model from {self.checkpointPath}')
-      self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.checkpointPath/'policy', actionSpaceSize)
+      self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.checkpointPath/'policy')
       self.valueNetwork = loadValueNetworkFromCheckpoint(self.checkpointPath/'value')
     else:
       self.policyNetwork = createNewPolicyNetwork(self.rngs)
@@ -355,6 +355,22 @@ class TrainingUtilClass:
   def initializeValueOptimizer(self, learningRate):
     tx = optax.adam(learning_rate=learningRate)
     self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
+
+  def loadPolicyOptimizerCheckpoint(self, learningRate, checkpointName):
+    tx = optax.adam(learning_rate=learningRate)
+    self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, self.policyNetworkOptimizer.opt_state)
+    checkpointer = ocp.StandardCheckpointer()
+    self.policyNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'policy_optimizer', abstractOptStateTree)
+    print('loaded PolicyOptimizerCheckpoint')
+
+  def loadValueOptimizerCheckpoint(self, learningRate, checkpointName):
+    tx = optax.adam(learning_rate=learningRate)
+    self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, self.valueNetworkOptimizer.opt_state)
+    checkpointer = ocp.StandardCheckpointer()
+    self.valueNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'value_optimizer', abstractOptStateTree)
+    print('loaded ValueOptimizerCheckpoint')
 
   def train(self, policyGradientsForTrajectories, valueGradientsForTrajectories, rewardsForTrajectories, valuesForTrajectories, gamma, episodeIndex):
     # Pad up to the nearest power of 2

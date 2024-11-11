@@ -166,9 +166,9 @@ private:
     }
     summaryWriter_.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
 
-    if ((episodeIndex+1)%10 == 0) {
+    if ((episodeIndex+1)%100 == 0) {
       cout << "Episode " << episodeIndex << " complete" << endl;
-      if ((episodeIndex+1)%10 == 0) {
+      if ((episodeIndex+1)%1000 == 0) {
         pythonTrainingUtil_->saveCheckpoint();
       }
     }

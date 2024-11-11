@@ -17,13 +17,15 @@ TrainingUtil::TrainingUtil(pybind11::module jaxModule, py::object summaryWriter,
   py::object TrainingUtilClass = jaxModule_.attr("TrainingUtilClass");
   // Create an instance of MyModel
   if (checkpointDirName.has_value()) {
-    trainingUtilInstance_ = TrainingUtilClass(ActionMap::getInstance().totalActionCount(), summaryWriter_, checkpointDirName.value());
+    trainingUtilInstance_ = TrainingUtilClass(summaryWriter_, checkpointDirName.value());
+    trainingUtilInstance_.attr("loadPolicyOptimizerCheckpoint")(kPolicyNetworkLearningRate, checkpointDirName.value());
+    trainingUtilInstance_.attr("loadValueOptimizerCheckpoint")(kValueNetworkLearningRate, checkpointDirName.value());
   } else {
-    trainingUtilInstance_ = TrainingUtilClass(ActionMap::getInstance().totalActionCount(), summaryWriter_);
+    trainingUtilInstance_ = TrainingUtilClass(summaryWriter_);
+    trainingUtilInstance_.attr("initializePolicyOptimizer")(kPolicyNetworkLearningRate);
+    trainingUtilInstance_.attr("initializeValueOptimizer")(kValueNetworkLearningRate);
   }
 
-  trainingUtilInstance_.attr("initializePolicyOptimizer")(kPolicyNetworkLearningRate);
-  trainingUtilInstance_.attr("initializeValueOptimizer")(kValueNetworkLearningRate);
 }
 
 void TrainingUtil::setSeed(int seed) {
