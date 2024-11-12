@@ -18,24 +18,34 @@ class PolicyNetwork(nnx.Module):
     positionCount = 67
     self.stateLinear = nnx.Linear(in_features=inFeatureSize, out_features=stateLinearOutputSize, rngs=rngs)
 
-    self.actionTypeLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=actionTypeCount, rngs=rngs)
-    self.cardLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=cardCount, rngs=rngs)
-    self.move1SourceLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
-    self.move1DestLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
-    self.move2SourceLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
-    self.move2DestLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=positionCount, rngs=rngs)
+    self.actionTypeLinear = nnx.Linear(
+        in_features=stateLinearOutputSize,
+        out_features=actionTypeCount,
+        rngs=rngs)
+    self.cardLinear = nnx.Linear(
+        in_features=stateLinearOutputSize + actionTypeCount,
+        out_features=cardCount,
+        rngs=rngs)
+    self.move1SourceLinear = nnx.Linear(
+        in_features=stateLinearOutputSize + actionTypeCount + cardCount,
+        out_features=positionCount,
+        rngs=rngs)
+    self.move1DestLinear = nnx.Linear(
+        in_features=stateLinearOutputSize + actionTypeCount + cardCount + positionCount,
+        out_features=positionCount,
+        rngs=rngs)
+    self.move2SourceLinear = nnx.Linear(
+        in_features=stateLinearOutputSize + actionTypeCount + cardCount + 2*positionCount,
+        out_features=positionCount,
+        rngs=rngs)
+    self.move2DestLinear = nnx.Linear(
+        in_features=stateLinearOutputSize + actionTypeCount + cardCount + 3*positionCount,
+        out_features=positionCount,
+        rngs=rngs)
 
   def __call__(self, x):
     x = self.stateLinear(x)
-    x = jax.nn.relu(x)
-    return {
-      'actionTypeLogits': self.actionTypeLinear(x),
-      'cardLogits': self.cardLinear(x),
-      'move1SourceLogits': self.move1SourceLinear(x),
-      'move1DestLogits': self.move1DestLinear(x),
-      'move2SourceLogits': self.move2SourceLinear(x),
-      'move2DestLogits': self.move2DestLinear(x)
-    }
+    return jax.nn.relu(x)
 
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
@@ -85,13 +95,13 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   }
 
   # Invoke the model to get the logits for every part of the action
-  logits = policyNetwork(input)
+  stateEmbedding = policyNetwork(input)
 
   # Filter out invalid action types via the masks computed on the given available actions
   actionTypeMask = masks['actionTypeMask']
   stillValidCardMasks = jnp.where(stillValidActionMask, actionTypeMask, jnp.zeros_like(actionTypeMask))
   stillValidActionTypeMask = jnp.where(jnp.any(stillValidCardMasks, axis=0), 0, -jnp.inf)
-  actionTypeLogits = logits['actionTypeLogits']
+  actionTypeLogits = policyNetwork.actionTypeLinear(stateEmbedding)
   maskedActionTypeLogits = actionTypeLogits + stillValidActionTypeMask
 
   # Select an action type given the logits and the mask
@@ -103,7 +113,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   cardMask = masks["cardMask"]
   stillValidCardMasks = jnp.where(stillValidActionMask, cardMask, jnp.zeros_like(cardMask))
   finalCardMask = jnp.where(jnp.any(stillValidCardMasks, axis=0), 0, -jnp.inf)
-  cardLogits = logits['cardLogits']
+  stateEmbeddingAndAction = jnp.concatenate([stateEmbedding, selectedActionOneHot])
+  cardLogits = policyNetwork.cardLinear(stateEmbeddingAndAction)
   maskedCardLogits = cardLogits + finalCardMask
 
   # Select a card given the logits and the mask
@@ -115,7 +126,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   move1SourceMask = masks["move1SourceMask"]
   stillValidMove1SourceMasks = jnp.where(stillValidActionMask, move1SourceMask, jnp.zeros_like(move1SourceMask))
   finalMove1SourceMask = jnp.where(jnp.any(stillValidMove1SourceMasks, axis=0), 0, -jnp.inf)
-  move1SourceLogits = logits['move1SourceLogits']
+  stateEmbeddingAndAction = jnp.concatenate([stateEmbeddingAndAction, selectedCardOneHot])
+  move1SourceLogits = policyNetwork.move1SourceLinear(stateEmbeddingAndAction)
   maskedMove1SourceLogits = move1SourceLogits + finalMove1SourceMask
 
   # Select a first move source given the logits and the mask
@@ -127,7 +139,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   move1DestMask = masks["move1DestMask"]
   stillValidMove1DestMasks = jnp.where(stillValidActionMask, move1DestMask, jnp.zeros_like(move1DestMask))
   finalMove1DestMask = jnp.where(jnp.any(stillValidMove1DestMasks, axis=0), 0, -jnp.inf)
-  move1DestLogits = logits['move1DestLogits']
+  stateEmbeddingAndAction = jnp.concatenate([stateEmbeddingAndAction, selectedMove1SourceOneHot])
+  move1DestLogits = policyNetwork.move1DestLinear(stateEmbeddingAndAction)
   maskedMove1DestLogits = move1DestLogits + finalMove1DestMask
 
   # Select a first move destination given the logits and the mask
@@ -139,7 +152,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   move2SourceMask = masks["move2SourceMask"]
   stillValidMove2SourceMasks = jnp.where(stillValidActionMask, move2SourceMask, jnp.zeros_like(move2SourceMask))
   finalMove2SourceMask = jnp.where(jnp.any(stillValidMove2SourceMasks, axis=0), 0, -jnp.inf)
-  move2SourceLogits = logits['move2SourceLogits']
+  stateEmbeddingAndAction = jnp.concatenate([stateEmbeddingAndAction, selectedMove1DestOneHot])
+  move2SourceLogits = policyNetwork.move2SourceLinear(stateEmbeddingAndAction)
   maskedMove2SourceLogits = move2SourceLogits + finalMove2SourceMask
 
   # Select a second move source given the logits and the mask
@@ -151,7 +165,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, input, actions, stillVal
   move2DestMask = masks["move2DestMask"]
   stillValidMove2DestMasks = jnp.where(stillValidActionMask, move2DestMask, jnp.zeros_like(move2DestMask))
   finalMove2DestMask = jnp.where(jnp.any(stillValidMove2DestMasks, axis=0), 0, -jnp.inf)
-  move2DestLogits = logits['move2DestLogits']
+  stateEmbeddingAndAction = jnp.concatenate([stateEmbeddingAndAction, selectedMove2SourceOneHot])
+  move2DestLogits = policyNetwork.move2DestLinear(stateEmbeddingAndAction)
   maskedMove2DestLogits = move2DestLogits + finalMove2DestMask
 
   # Select a second move destination given the logits and the mask
