@@ -112,14 +112,7 @@ Play 12
 
 # Agent Performance
 
-## Single Player - Random Agent
-
- - Green  - Average actions per game: 59.772336
- - Blue   - Average actions per game: 59.742279
- - Red    - Average actions per game: 59.745334
- - Yellow - Average actions per game: 59.757388
-
-Of course, every color should have the same action count when acting randomly.
+_TODO_
 
 # Installation
 

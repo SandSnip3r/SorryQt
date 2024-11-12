@@ -11,11 +11,12 @@ from functools import partial
 
 class PolicyNetwork(nnx.Module):
   def __init__(self, rngs):
+    inFeatureSize = 4+11*5+2*4*67
     stateLinearOutputSize = 512
     actionTypeCount = 5
     cardCount = 11
     positionCount = 67
-    self.stateLinear = nnx.Linear(in_features=327, out_features=stateLinearOutputSize, rngs=rngs)
+    self.stateLinear = nnx.Linear(in_features=inFeatureSize, out_features=stateLinearOutputSize, rngs=rngs)
 
     self.actionTypeLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=actionTypeCount, rngs=rngs)
     self.cardLinear = nnx.Linear(in_features=stateLinearOutputSize, out_features=cardCount, rngs=rngs)
@@ -38,7 +39,8 @@ class PolicyNetwork(nnx.Module):
 
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
-    self.linear1 = nnx.Linear(in_features=327, out_features=128, rngs=rngs)
+    inFeatureSize = 4+11*5+2*4*67
+    self.linear1 = nnx.Linear(in_features=inFeatureSize, out_features=128, rngs=rngs)
     self.linear2 = nnx.Linear(in_features=128, out_features=1, rngs=rngs)
 
   def __call__(self, x):

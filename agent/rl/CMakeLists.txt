@@ -75,10 +75,11 @@ add_executable(syntaxTest syntaxTest.cpp)
 target_compile_definitions(train PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_link_libraries(train PRIVATE
-  sorry::common
-  sorry::engine
   pybind11::embed
   pybind11::module
+  sorry::agent::random
+  sorry::common
+  sorry::engine
   ${Python3_LIBRARIES}
 )
 

@@ -3,6 +3,7 @@
 #include "trainingUtil.hpp"
 #include "trajectory.hpp"
 
+#include <sorry/agent/random/randomAgent.hpp>
 #include <sorry/common/common.hpp>
 #include <sorry/engine/sorry.hpp>
 
@@ -45,15 +46,17 @@ private:
 void simulateRandomGames() {
   constexpr const int kNumGames = 1'000'000;
   int totalActionCount = 0;
-  mt19937 randomEngine(123);// = sorry::common::createRandomEngine();
+  constexpr int kSeed = 123;
+  mt19937 randomEngine(kSeed);
+  sorry::agent::RandomAgent randomAgent;
+  randomAgent.seed(kSeed);
   sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
   for (int i=0; i<kNumGames; ++i) {
     int thisGameActionCount = 0;
     sorry.reset(randomEngine);
     while (!sorry.gameDone()) {
-      const std::vector<sorry::engine::Action> actions = sorry.getActions();
-      uniform_int_distribution<size_t> dist(0, actions.size() - 1);
-      const sorry::engine::Action action = actions[dist(randomEngine)];
+      randomAgent.run(sorry);
+      const sorry::engine::Action action = randomAgent.pickBestAction();
       sorry.doAction(action, randomEngine);
       ++thisGameActionCount;
     }
@@ -88,6 +91,7 @@ public:
     // Seed all random engines
     constexpr int kSeed = 0x5EED;
     randomEngine_ = std::mt19937{kSeed};
+    randomAgent_.seed(kSeed);
     pythonTrainingUtil_->setSeed(kSeed);
 
     // Start training
@@ -98,6 +102,7 @@ public:
     while (episodeIndex<kEpisodeCount) {
       for (int i=0; i<kBatchSize; ++i) {
         if (episodeIndex >= kEpisodeCount) {
+          // TODO: If this ends on an incomplete batch, the model should not be trained.
           break;
         }
         collectTrajectory(episodeIndex, batchTrajectories[i]);
@@ -111,63 +116,76 @@ public:
     }
   }
 private:
+  static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
+  static constexpr sorry::engine::PlayerColor randomAgentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
   std::mt19937 randomEngine_;
+  sorry::agent::RandomAgent randomAgent_;
   std::optional<python_wrapper::TrainingUtil> pythonTrainingUtil_;
 
   void collectTrajectory(int episodeIndex, Trajectory &trajectory) {
     ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
     // Construct Sorry game
     // TODO: This construction should be moved outside the loop
-    const sorry::engine::PlayerColor playerColor = pickRandomColor();
-    sorry::engine::Sorry sorry({playerColor});
+    // With this initialization, we always go first, because our color is the first in the list.
+    sorry::engine::Sorry sorry({ourColor_, randomAgentColor_});
     sorry.reset(randomEngine_);
     trajectory.reset();
 
     // Generate a full trajectory according to the policy
-    int actionCount = 0;
     while (!sorry.gameDone()) {
-      const std::vector<sorry::engine::Action> actions = sorry.getActions();
-      py::object policyGradient;
-      sorry::engine::Action action;
-      py::object observation = common::makeNumpyObservation(sorry);
-      // TODO: Rather than getting the value & value gradient here, I could simply save the observation in the trajectory and get it later during training.
-      py::object valueGradient;
-      float value;
-      std::tie(valueGradient, value) = pythonTrainingUtil_->getValueGradientAndValue(observation);
-
-      // Take an action according to the policy, masked by the valid actions
-      std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, actions);
-      // std::cout << "Taking action " << action.toString() << std::endl;
-
-      if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
-        std::cout << "Current state: " << sorry.toString() << std::endl;
-        std::cout << "Valid actions were:" << std::endl;
-        for (const sorry::engine::Action &a : actions) {
-          std::cout << "  " << a.toString() << std::endl;
-        }
-        throw std::runtime_error("Invalid action after mask "+action.toString());
-      }
-
-      // Take action in game
-      sorry.doAction(action, randomEngine_);
-      ++actionCount;
-
-      float reward;
-      if (sorry.gameDone()) {
-        reward = 0.0;
+      // Who's turn is it?
+      const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
+      if (playerTurn == randomAgentColor_) {
+        // Let the random agent take a turn
+        randomAgent_.run(sorry);
+        const sorry::engine::Action action = randomAgent_.pickBestAction();
+        sorry.doAction(action, randomEngine_);
       } else {
-        // Give a small negative reward to encourage the model to finish the game as quickly as possible
-        reward = -0.01;
-      }
+        // It is our turn
+        py::object policyGradient;
+        py::object valueGradient;
+        float value;
+        py::object observation = common::makeNumpyObservation(sorry);
 
-      // Store the observation into a python-read trajectory data structure
-      trajectory.pushStep(policyGradient, reward, valueGradient, value);
+        // TODO: Rather than getting the value & value gradient here, I could simply save the observation in the trajectory and get it later during training.
+        std::tie(valueGradient, value) = pythonTrainingUtil_->getValueGradientAndValue(observation);
+
+        // Take an action according to the policy, masked by the valid actions
+        const std::vector<sorry::engine::Action> actions = sorry.getActions();
+        sorry::engine::Action action;
+        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, actions);
+
+        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
+          std::cout << "Current state: " << sorry.toString() << std::endl;
+          std::cout << "Valid actions were:" << std::endl;
+          for (const sorry::engine::Action &a : actions) {
+            std::cout << "  " << a.toString() << std::endl;
+          }
+          throw std::runtime_error("Invalid action after mask "+action.toString());
+        }
+
+        // Take action in game
+        sorry.doAction(action, randomEngine_);
+
+        // Store the observation into a python-read trajectory data structure
+        trajectory.pushStep(policyGradient, 0.0, valueGradient, value);
+      }
     }
-    summaryWriter_.attr("add_scalar")("episode/action_count", actionCount, episodeIndex);
+
+    float reward;
+    // Who won?
+    sorry::engine::PlayerColor winner = sorry.getWinner();
+    if (winner == ourColor_) {
+      reward = 1.0;
+    } else {
+      reward = -1.0;
+    }
+    trajectory.setLastReward(reward);
+    summaryWriter_.attr("add_scalar")("episode/reward", reward, episodeIndex);
 
     if ((episodeIndex+1)%100 == 0) {
-      cout << "Episode " << episodeIndex << " complete" << endl;
+      cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
       if ((episodeIndex+1)%1000 == 0) {
         pythonTrainingUtil_->saveCheckpoint();
       }

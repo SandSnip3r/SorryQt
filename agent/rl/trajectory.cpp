@@ -17,3 +17,10 @@ void Trajectory::reset() {
   valueGradients.clear();
   values.clear();
 }
+
+void Trajectory::setLastReward(double reward) {
+  if (rewards.empty()) {
+    throw std::runtime_error("No rewards");
+  }
+  rewards.back() = reward;
+}

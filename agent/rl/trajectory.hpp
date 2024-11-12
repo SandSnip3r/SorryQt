@@ -11,6 +11,7 @@ public:
   void pushStep(pybind11::object policyGradient, float reward, pybind11::object valueGradient, float value);
   void reset();
   size_t size() const { return policyGradients.size(); }
+  void setLastReward(double reward);
 
   // Policy gradient is directly ready for gradient descent.
   std::vector<pybind11::object> policyGradients;
