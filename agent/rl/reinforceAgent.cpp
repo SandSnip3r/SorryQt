@@ -3,6 +3,7 @@
 
 #include <pybind11/eval.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 
 #include <iostream>
 #include <string>
@@ -42,10 +43,16 @@ void ReinforceAgent::run(const sorry::engine::Sorry &sorry) {
   std::vector<std::vector<int>> actionsArray = common::createArrayOfActions(validActions);
   pybind11::tuple actionTuple = inferenceInstance_.attr("getBestAction")(observation, actionsArray);
   bestAction_ = common::actionFromTuple(actionTuple, sorry.getPlayerTurn());
+
+  // Create a temporary set of action scores and just say that we prefer the best action @ 100%.
+  // TODO: Actually get real action scores from the model.
+  actionScores_.clear();
+  for (const auto &action : validActions) {
+    actionScores_.emplace_back(action, action == bestAction_.value() ? 1.0 : 0.0);
+  }
 }
 
 std::vector<ActionScore> ReinforceAgent::getActionScores() const {
-  throw std::runtime_error("Not implemented"); // TODO
   return actionScores_;
 }
 

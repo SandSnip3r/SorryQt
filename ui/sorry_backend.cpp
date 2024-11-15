@@ -41,7 +41,7 @@ void SorryBackend::initializeGame() {
   eng_ = std::mt19937(randomSeed_);
 
   // Create new Sorry game
-  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kBlue});
+  sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kBlue});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed});
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
   sorryState_.reset(eng_);
@@ -49,7 +49,8 @@ void SorryBackend::initializeGame() {
   rlAgent_ = new sorry::agent::ReinforceAgent();
   rlAgent_->seed(randomSeed_);
 
-  playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Rl;
+  playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Rl;
+  playerTypes_[sorry::engine::PlayerColor::kBlue] = PlayerType::Human;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Mcts;
   // playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Human;
   // playerTypes_[sorry::engine::PlayerColor::kRed] = PlayerType::Mcts;
@@ -189,8 +190,10 @@ void SorryBackend::runRlAgent() {
     gstate = PyGILState_Ensure();
     rlAgent_->run(sorryState_);
     const std::vector<sorry::agent::ActionScore> actionsAndScores = rlAgent_->getActionScores();
-    emit actionScoresChanged(actionsAndScores);
-    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    if (!hiddenHand_) {
+      emit actionScoresChanged(actionsAndScores);
+      std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    }
     const sorry::engine::Action bestAction = rlAgent_->pickBestAction();
     emit actionChosen(bestAction);
     PyGILState_Release(gstate);

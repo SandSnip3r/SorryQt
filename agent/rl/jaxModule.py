@@ -375,7 +375,7 @@ class InferenceClass:
       self.policyNetwork = nnx.clone(trainingUtil.policyNetwork)
     else:
       # Load the model from checkpoint
-      checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'latest'
+      checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / 'reinforce_wb_1v1_selfplay'
       print(f'Loading model from {checkpointPath}')
       self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath / 'policy')
 
@@ -399,8 +399,9 @@ class InferenceClass:
     actions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
     validActions = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
     validActions = validActions[:, None]
-    # modelClone = nnx.clone(self.policyNetwork)
-    _, action = self.getStochasticActionTuple(self.rngs.myAdditionalStream(), self.policyNetwork, data, actions, validActions)
+    modelClone = nnx.clone(self.policyNetwork)
+    clonedRngStream = nnx.clone(self.rngs)
+    _, action = self.getStochasticActionTuple(clonedRngStream.myAdditionalStream(), modelClone, data, actions, validActions)
     return action
 
   def getProbabilitiesAndSelectedIndex(self, data, actions, clone=True):
