@@ -16,6 +16,7 @@ class TrainingUtil {
 public:
   TrainingUtil(pybind11::module jaxModule, pybind11::object summaryWriter, std::optional<std::string> checkpointDirName = std::nullopt);
   void setSeed(int seed);
+  pybind11::object getPythonTrainingUtilInstance() const { return trainingUtilInstance_; }
 
   std::pair<pybind11::object, sorry::engine::Action> getPolicyGradientAndAction(
       pybind11::object observation,
@@ -28,7 +29,7 @@ public:
   void train(std::vector<Trajectory> &trajectories, int episodeIndex);
   void saveCheckpoint();
 private:
-  static constexpr float kGamma{0.99};
+  static constexpr float kGamma{0.9999};
   static constexpr float kPolicyNetworkLearningRate{0.001};
   static constexpr float kValueNetworkLearningRate{0.00005};
   pybind11::module jaxModule_;

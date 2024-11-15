@@ -8,6 +8,7 @@ add_compile_options(-O3 -Wall)
 set(SRC_FILES
   action.cpp
   card.cpp
+  common.cpp
   deck.cpp
   playerColor.cpp
   sorry.cpp
@@ -17,6 +18,7 @@ set(SRC_FILES
 set(INC_FILES
   action.hpp
   card.hpp
+  common.hpp
   deck.hpp
   playerColor.hpp
   sorry.hpp

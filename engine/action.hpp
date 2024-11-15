@@ -26,6 +26,7 @@ public:
   static Action sorry(PlayerColor playerColor, int moveDestination);
   static Action swap(PlayerColor playerColor, int moveSource, int moveDestination);
   std::string toString() const;
+  void rotateBoard(PlayerColor from, PlayerColor to);
 
   PlayerColor playerColor;
   ActionType actionType;

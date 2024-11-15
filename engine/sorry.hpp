@@ -87,6 +87,14 @@ public:
   // An equality comparison which does not look at other players' hands.
   bool equalForPlayer(const Sorry &other, PlayerColor playerColor) const;
 
+  // This function is as patch to enable player-color symmetry. For example,
+  // if an agent is trained to play as green, but is then asked to play as blue,
+  // the board must be "rotated" so that he may play as green.
+  // Make sure to rotate the board back afterward.
+  // Also, make sure to rotate actions generated from the rotated board.
+  // TODO: Instead, make all external positions relative.
+  void rotateBoard(PlayerColor from, PlayerColor to);
+
   static int getFirstPosition(PlayerColor playerColor);
   static int posAfterMoveForPlayer(PlayerColor playerColor, int startingPosition, int moveDistance);
 private:

@@ -1,4 +1,5 @@
 #include "action.hpp"
+#include "common.hpp"
 
 #include <sstream>
 #include <stdexcept>
@@ -97,6 +98,15 @@ std::string Action::toString() const {
     ss << ',' << move1Destination;
   }
   return ss.str();
+}
+
+void Action::rotateBoard(PlayerColor from, PlayerColor to) {
+  const int rotationCount = common::rotationCount(from, to);
+  move1Source = common::rotatePosition(move1Source, rotationCount);
+  move1Destination = common::rotatePosition(move1Destination, rotationCount);
+  move2Source = common::rotatePosition(move2Source, rotationCount);
+  move2Destination = common::rotatePosition(move2Destination, rotationCount);
+  playerColor = common::rotatePlayerColor(playerColor, rotationCount);
 }
 
 bool operator==(const Action &lhs, const Action &rhs) {

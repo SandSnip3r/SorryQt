@@ -1,4 +1,5 @@
 #include "sorry.hpp"
+#include "common.hpp"
 
 #include <algorithm>
 #include <iostream>
@@ -402,7 +403,7 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
     }
   } else if (action.actionType == Action::ActionType::kSwap) {
     const int piece1Index = getIndexOfPieceAtPosition(action.playerColor, action.move1Source);
-    int &ourPos = player.piecePositions.at(piece1Index);
+    int *destinationPiecePosition = nullptr;
     // Find who's piece is on the destination position
     bool found = false;
     for (Player &opponentPlayer : players_) {
@@ -412,13 +413,18 @@ void Sorry::doAction(const Action &action, std::mt19937 &eng) {
       for (int &otherPlayerPos : opponentPlayer.piecePositions) {
         if (otherPlayerPos == action.move1Destination) {
           if (found) {
-            throw std::runtime_error("Multiple pieces at the destination postion");
+            throw std::runtime_error("Swap: Multiple pieces at the destination postion");
           }
-          std::swap(ourPos, otherPlayerPos);
+          destinationPiecePosition = &otherPlayerPos;
           found = true;
         }
       }
     }
+    if (destinationPiecePosition == nullptr) {
+      throw std::runtime_error("Could not find target piece");
+    }
+    int &ourPos = player.piecePositions.at(piece1Index);
+    std::swap(ourPos, *destinationPiecePosition);
   }
 
   // Do a quick sanity check to make that no two pieces are in the same spot, apart from start and home.
@@ -517,6 +523,19 @@ bool Sorry::equalForPlayer(const Sorry &other, PlayerColor playerColor) const {
     }
   }
   return true;
+}
+
+void Sorry::rotateBoard(PlayerColor from, PlayerColor to) {
+  // Things that need to be rotated:
+  //  - Players' piece positions
+  //  - Player colors (we need to know when we can slide and when we can kill)
+  const int rotationCount = common::rotationCount(from, to);
+  for (Player &player : players_) {
+    player.playerColor = common::rotatePlayerColor(player.playerColor, rotationCount);
+    for (int &pos : player.piecePositions) {
+      pos = common::rotatePosition(pos, rotationCount);
+    }
+  }
 }
 
 int Sorry::getFirstPosition(PlayerColor playerColor) {

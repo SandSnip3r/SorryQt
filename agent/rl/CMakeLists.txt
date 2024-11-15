@@ -80,6 +80,7 @@ target_link_libraries(train PRIVATE
   sorry::agent::random
   sorry::common
   sorry::engine
+  ${PROJECT_NAME}
   ${Python3_LIBRARIES}
 )
 

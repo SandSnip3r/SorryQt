@@ -4,6 +4,7 @@
 #include "trajectory.hpp"
 
 #include <sorry/agent/random/randomAgent.hpp>
+#include <sorry/agent/rl/reinforceAgent.hpp>
 #include <sorry/common/common.hpp>
 #include <sorry/engine/sorry.hpp>
 
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <deque>
 #include <fstream>
 #include <functional>
 #include <random>
@@ -75,6 +77,33 @@ void simulateRandomGames() {
 
 // =================================================================================================
 
+struct OpponentStats {
+public:
+  void pushGameResult(float reward) {
+    if (rewards.size() >= kBufferSize) {
+      totalReward -= rewards.front();
+      rewards.pop_front();
+    }
+    rewards.push_back(reward);
+    totalReward += reward;
+  }
+
+  int gameCount() const {
+    return rewards.size();
+  }
+
+  float averageReward() const {
+    if (rewards.empty()) {
+      return 0.0;
+    }
+    return totalReward / rewards.size();
+  }
+private:
+  static constexpr int kBufferSize = 31;
+  std::deque<float> rewards;
+  float totalReward{0.0};
+};
+
 class Trainer {
 public:
   void trainReinforce() {
@@ -88,11 +117,16 @@ public:
     // pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_, "latest");
     pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_);
 
+    // Set up a single random agent as the first opponent for our agent
+    opponentPool_.push_back(new sorry::agent::RandomAgent());
+    resetOpponentStats();
+
     // Seed all random engines
     constexpr int kSeed = 0x5EED;
     randomEngine_ = std::mt19937{kSeed};
-    randomAgent_.seed(kSeed);
     pythonTrainingUtil_->setSeed(kSeed);
+    // Also see our random opponent
+    opponentPool_.back()->seed(kSeed);
 
     // Start training
     constexpr int kEpisodeCount = 1'000'000;
@@ -108,6 +142,12 @@ public:
         collectTrajectory(episodeIndex, batchTrajectories[i]);
         ++episodeIndex;
       }
+      if (shouldAddSelfToPool()) {
+        std::cout << "Going to add self to pool" << std::endl;
+        opponentPool_.push_back(new sorry::agent::ReinforceAgent(pythonTrainingUtil_->getPythonTrainingUtilInstance()));
+        opponentPool_.back()->seed(kSeed);
+        resetOpponentStats();
+      }
       // A batch of trajectories has been generated, now train the model
       {
         ScopedTimer timer(summaryWriter_, "training_util_train", episodeIndex);
@@ -117,29 +157,77 @@ public:
   }
 private:
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
-  static constexpr sorry::engine::PlayerColor randomAgentColor_{sorry::engine::PlayerColor::kBlue};
+  static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
   std::mt19937 randomEngine_;
-  sorry::agent::RandomAgent randomAgent_;
+  std::vector<sorry::agent::BaseAgent*> opponentPool_;
   std::optional<python_wrapper::TrainingUtil> pythonTrainingUtil_;
+  std::vector<OpponentStats> opponentStats_;
+
+  bool shouldAddSelfToPool() const {
+    constexpr int kMinGamesPerOpponent = 31;
+    constexpr float kMinAverageReward = 0.5; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
+    // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
+    // The minimum average reward should be at least `kMinAverageReward`.
+    std::cout << "Stats: Game counts: [ ";
+    for (const OpponentStats &opponentStats : opponentStats_) {
+      std::cout << opponentStats.gameCount() << ", ";
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "    Average reward: [ ";
+    for (const OpponentStats &opponentStats : opponentStats_) {
+      std::cout << opponentStats.averageReward() << ", ";
+    }
+    std::cout << "]" << std::endl;
+    for (const OpponentStats &opponentStats : opponentStats_) {
+      if (opponentStats.gameCount() < kMinGamesPerOpponent) {
+        return false;
+      }
+    }
+    auto minElementIt = std::min_element(opponentStats_.begin(), opponentStats_.end(), [](const OpponentStats &a, const OpponentStats &b) {
+      return a.averageReward() < b.averageReward();
+    });
+    return minElementIt->averageReward() >= kMinAverageReward;
+  }
+
+  void resetOpponentStats() {
+    opponentStats_.clear();
+    opponentStats_.resize(opponentPool_.size());
+  }
 
   void collectTrajectory(int episodeIndex, Trajectory &trajectory) {
     ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
     // Construct Sorry game
     // TODO: This construction should be moved outside the loop
     // With this initialization, we always go first, because our color is the first in the list.
-    sorry::engine::Sorry sorry({ourColor_, randomAgentColor_});
+    sorry::engine::Sorry sorry({ourColor_, opponentColor_});
     sorry.reset(randomEngine_);
     trajectory.reset();
+    // Randomly choose one opponent from the pool
+    std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
+    size_t opponentIndex = dist(randomEngine_);
+    std::cout << "Playing against opponent #" << opponentIndex << std::endl;
+    sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
 
     // Generate a full trajectory according to the policy
     while (!sorry.gameDone()) {
       // Who's turn is it?
       const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
-      if (playerTurn == randomAgentColor_) {
-        // Let the random agent take a turn
-        randomAgent_.run(sorry);
-        const sorry::engine::Action action = randomAgent_.pickBestAction();
+      if (playerTurn == opponentColor_) {
+        // Let the opponent take a turn
+        sorry::engine::Action action;
+        if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent) != nullptr) {
+          // Reinforce Agent was trained to play as green. Rotate the board so that they play from our position.
+          sorry.rotateBoard(opponentColor_, ourColor_);
+          opponent->run(sorry);
+          action = opponent->pickBestAction();
+          action.rotateBoard(ourColor_, opponentColor_);
+          // Put board back.
+          sorry.rotateBoard(ourColor_, opponentColor_);
+        } else {
+          opponent->run(sorry);
+          action = opponent->pickBestAction();
+        }
         sorry.doAction(action, randomEngine_);
       } else {
         // It is our turn
@@ -181,8 +269,10 @@ private:
     } else {
       reward = -1.0;
     }
+    opponentStats_.at(opponentIndex).pushGameResult(reward);
     trajectory.setLastReward(reward);
-    summaryWriter_.attr("add_scalar")("episode/reward", reward, episodeIndex);
+    summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), reward, episodeIndex);
+    summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
 
     if ((episodeIndex+1)%100 == 0) {
       cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;

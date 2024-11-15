@@ -14,6 +14,7 @@ namespace sorry::agent {
 class __attribute__ ((visibility("hidden"))) ReinforceAgent : public sorry::agent::BaseAgent {
 public:
   ReinforceAgent();
+  ReinforceAgent(pybind11::object trainingUtilInstance);
   void seed(int seed) override;
 
   // After calling run, action preferences remain until the next call to run.
@@ -26,8 +27,8 @@ private:
   pybind11::object jaxRandomKey_;
   std::optional<sorry::engine::Action> bestAction_;
   std::vector<ActionScore> actionScores_;
-  
-  pybind11::object getRandomKey();
+
+  void initializeJaxModule();
 };
 
 } // namespace sorry::agent
