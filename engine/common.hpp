@@ -11,6 +11,7 @@ int rotationCount(PlayerColor from, PlayerColor to);
 // Returns the new piece position after rotating the board 90 degrees 'rotationCount' times.
 int rotatePosition(int position, int rotationCount);
 
+// Returns the player color after rotating the board 90 degrees 'rotationCount' times.
 PlayerColor rotatePlayerColor(PlayerColor playerColor, int rotationCount);
 
 } // namespace sorry::engine::common

@@ -13,7 +13,8 @@ namespace common {
 
 sorry::engine::Card cardIndexToCard(size_t index);
 size_t cardToCardIndex(sorry::engine::Card card);
-pybind11::array_t<float> makeNumpyObservation(const sorry::engine::Sorry &sorry);
+std::vector<int> makeObservation(const sorry::engine::Sorry &sorry);
+// pybind11::array_t<float> makeNumpyObservation(const sorry::engine::Sorry &sorry);
 
 // An action in python is represented as a concatenation of 6 one-hots
 // |------5------|------11-----|------67-----|------67-----|------67-----|------67-----|

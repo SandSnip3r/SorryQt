@@ -38,7 +38,7 @@ void ReinforceAgent::seed(int seed) {
 
 // After calling run, action preferences remain until the next call to run.
 void ReinforceAgent::run(const sorry::engine::Sorry &sorry) {
-  pybind11::object observation = common::makeNumpyObservation(sorry);
+  std::vector<int> observation = common::makeObservation(sorry);
   std::vector<sorry::engine::Action> validActions = sorry.getActions();
   std::vector<std::vector<int>> actionsArray = common::createArrayOfActions(validActions);
   pybind11::tuple actionTuple = inferenceInstance_.attr("getBestAction")(observation, actionsArray);

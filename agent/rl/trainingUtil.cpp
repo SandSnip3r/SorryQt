@@ -25,7 +25,6 @@ TrainingUtil::TrainingUtil(pybind11::module jaxModule, py::object summaryWriter,
     trainingUtilInstance_.attr("initializePolicyOptimizer")(kPolicyNetworkLearningRate);
     trainingUtilInstance_.attr("initializeValueOptimizer")(kValueNetworkLearningRate);
   }
-
 }
 
 void TrainingUtil::setSeed(int seed) {
@@ -33,7 +32,7 @@ void TrainingUtil::setSeed(int seed) {
 }
 
 std::pair<py::object, sorry::engine::Action> TrainingUtil::getPolicyGradientAndAction(
-    py::object observation,
+    const std::vector<int> &observation,
     sorry::engine::PlayerColor playerColor,
     int episodeIndex,
     const std::vector<sorry::engine::Action> &validActions) {
@@ -47,26 +46,17 @@ std::pair<py::object, sorry::engine::Action> TrainingUtil::getPolicyGradientAndA
   return {gradient, common::actionFromTuple(tuple, playerColor)};
 }
 
-std::pair<pybind11::object, float> TrainingUtil::getValueGradientAndValue(pybind11::object observation) {
-  py::tuple result = trainingUtilInstance_.attr("getValueGradientAndValue")(observation);
-  py::object gradient = result[0];
-  const float value = result[1].cast<float>();
-  return {gradient, value};
-}
-
-void TrainingUtil::train(std::vector<Trajectory> &trajectories, int episodeIndex) {
+void TrainingUtil::train(std::vector<Trajectory> &&trajectories, int episodeIndex) {
   // Change from an array of structs to struct of arrays
   std::vector<std::vector<py::object>> policyGradients;
   std::vector<std::vector<float>> rewards;
-  std::vector<std::vector<py::object>> valueGradients;
-  std::vector<std::vector<float>> values;
+  std::vector<std::vector<std::vector<int>>> observations;
   for (Trajectory &trajectory : trajectories) {
-    policyGradients.push_back(std::move(trajectory.policyGradients));
-    rewards.push_back(std::move(trajectory.rewards));
-    valueGradients.push_back(std::move(trajectory.valueGradients));
-    values.push_back(std::move(trajectory.values));
+    policyGradients.emplace_back(std::move(trajectory.policyGradients));
+    rewards.emplace_back(std::move(trajectory.rewards));
+    observations.emplace_back(std::move(trajectory.observations));
   }
-  trainingUtilInstance_.attr("train")(policyGradients, valueGradients, rewards, values, kGamma, episodeIndex);
+  trainingUtilInstance_.attr("train")(policyGradients, rewards, observations, kGamma, episodeIndex);
 }
 
 void TrainingUtil::saveCheckpoint() {

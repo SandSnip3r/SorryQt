@@ -19,17 +19,17 @@ public:
   pybind11::object getPythonTrainingUtilInstance() const { return trainingUtilInstance_; }
 
   std::pair<pybind11::object, sorry::engine::Action> getPolicyGradientAndAction(
-      pybind11::object observation,
+      const std::vector<int> &observation,
       sorry::engine::PlayerColor playerColor,
       int episodeIndex,
       const std::vector<sorry::engine::Action> &validActions);
 
-  std::pair<pybind11::object, float> getValueGradientAndValue(pybind11::object observation);
+  std::pair<pybind11::object, float> getValueGradientAndValue(const std::vector<int> &observation);
 
-  void train(std::vector<Trajectory> &trajectories, int episodeIndex);
+  void train(std::vector<Trajectory> &&trajectories, int episodeIndex);
   void saveCheckpoint();
 private:
-  static constexpr float kGamma{0.9999};
+  static constexpr float kGamma{0.999};
   static constexpr float kPolicyNetworkLearningRate{0.001};
   static constexpr float kValueNetworkLearningRate{0.00005};
   pybind11::module jaxModule_;

@@ -1,9 +1,10 @@
+import os
+
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
 import math
 import optax
-import os
 import sys
 import pathlib
 from flax import nnx
@@ -11,7 +12,7 @@ from functools import partial
 
 class PolicyNetwork(nnx.Module):
   def __init__(self, rngs):
-    inFeatureSize = 4+11*5+2*4*67
+    inFeatureSize = 1+11*5+2*4*67
     stateLinearOutputSize = 512
     actionTypeCount = 5
     cardCount = 11
@@ -49,7 +50,7 @@ class PolicyNetwork(nnx.Module):
 
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
-    inFeatureSize = 4+11*5+2*4*67
+    inFeatureSize = 1+11*5+2*4*67
     self.linear1 = nnx.Linear(in_features=inFeatureSize, out_features=128, rngs=rngs)
     self.linear2 = nnx.Linear(in_features=128, out_features=1, rngs=rngs)
 
@@ -339,8 +340,10 @@ def getProbabilitiesAndIndex(policyNetwork, input, actions, stillValidActionMask
 
   return ()
 
-def getValue(valueNetwork, input):
-  return valueNetwork(input)
+def getValue(valueNetwork, observation):
+  return valueNetwork(observation)
+
+jittedGetValueAndValueGradient = nnx.jit(nnx.value_and_grad(getValue))
 
 def loadPolicyNetworkFromCheckpoint(checkpointPath):
   abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0)))
@@ -386,11 +389,10 @@ class InferenceClass:
     # self.getBestActionTuple = nnx.jit(getBestActionTuple)
     self.getStochasticActionTuple = nnx.jit(getProbabilityAndActionTuple)
 
-
   def setSeed(self, seed):
     self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
 
-  def getBestAction(self, data, actions):
+  def getBestAction(self, observation, actions):
     # Pad actions up to the nearest power of 2
     newActionsLength = int(2**math.ceil(math.log2(len(actions))))
     originalSize = len(actions)
@@ -399,9 +401,10 @@ class InferenceClass:
     actions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
     validActions = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
     validActions = validActions[:, None]
+    observation = createObservationForModel(jnp.asarray(observation))
     modelClone = nnx.clone(self.policyNetwork)
     clonedRngStream = nnx.clone(self.rngs)
-    _, action = self.getStochasticActionTuple(clonedRngStream.myAdditionalStream(), modelClone, data, actions, validActions)
+    _, action = self.getStochasticActionTuple(clonedRngStream.myAdditionalStream(), modelClone, observation, actions, validActions)
     return action
 
   def getProbabilitiesAndSelectedIndex(self, data, actions, clone=True):
@@ -428,8 +431,8 @@ class InferenceClass:
 # ================================================================================================
 # ================================================================================================
 
-@nnx.jit
-def updateModels(policyGradients, valueGradients, rewards, values, masks, gamma, policyOptimizer, valueOptimizer):
+# @nnx.jit
+def updateModels(policyGradients, rewards, observations, valueNetwork, masks, gamma, policyOptimizer, valueOptimizer):
   def calculateReturns(rewards, gamma):
     # Calculate returns for all timesteps at once using JAX operations
     length = len(rewards)
@@ -442,26 +445,25 @@ def updateModels(policyGradients, valueGradients, rewards, values, masks, gamma,
     returns = jnp.sum(masked_powers * masked_rewards, axis=1)
     return returns
 
-  def scaleByRank(x, scales):
-    if x.ndim == 1:
-      return x * scales
-    elif x.ndim == 2:
-      return x * scales[:, None]
-    elif x.ndim == 3:
-      return x * scales[:, None, None]
-
   vectorizedCalculateReturns = jax.vmap(calculateReturns, in_axes=(0, None))
-  vectorizedDiscountCalculation = jax.vmap(lambda x, g: g**jnp.arange(len(x)), in_axes=(0, None))
+  vectorizedDiscountCalculation = jax.vmap(lambda x, m, g: g**(jnp.arange(len(x)) - (len(x)-jnp.sum(m))), in_axes=(0, 0, None))
 
+  # Using the observations, get the values and value gradients
+  # Two vmaps, one for batch dimension, second for time dimension
+  observations = jax.vmap(jax.vmap(createObservationForModel))(observations)
+  values, valueGradients = jax.vmap(jax.vmap(jittedGetValueAndValueGradient, in_axes=(None, 0)), in_axes=(None, 0))(valueNetwork, observations)
   returns = vectorizedCalculateReturns(rewards, gamma)
   tdErrors = returns - values
-  discounts = vectorizedDiscountCalculation(rewards, gamma)
+  discounts = vectorizedDiscountCalculation(rewards, masks, gamma)
   policyScale = tdErrors * discounts
 
   # Scale all gradients at once
-  vectorizedScale = jax.vmap(scaleByRank, in_axes=(0, 0))
-  scaledPolicyGradients = jax.tree.map(lambda x: vectorizedScale(x, policyScale), policyGradients)
-  scaledValueGradients = jax.tree.map(lambda x: vectorizedScale(x, tdErrors), valueGradients)
+  def scale(gradient, scale, masks):
+    return gradient * scale * masks
+
+  vectorizedScale = jax.vmap(jax.vmap(scale, in_axes=(0, 0, 0)), in_axes=(0, 0, 0))
+  scaledPolicyGradients = jax.tree.map(lambda x: vectorizedScale(x, policyScale, masks), policyGradients)
+  scaledValueGradients = jax.tree.map(lambda x: vectorizedScale(x, tdErrors, masks), valueGradients)
   # Negate value gradients to perform gradient descent
   scaledValueGradients = jax.tree.map(lambda x: -x, scaledValueGradients)
 
@@ -490,6 +492,16 @@ def updateModels(policyGradients, valueGradients, rewards, values, masks, gamma,
 
   return jnp.mean(means), jnp.mean(stdDevs)
 
+@jax.jit
+def createObservationForModel(observation):
+  cardCount = 11
+  positionCount = 67
+  haveOpponentAcrossBoard = observation[0].reshape(1)
+  cardOneHots = jnp.concat(jax.nn.one_hot(observation[1:1+5], cardCount))
+  selfPositions = jnp.concat(jax.nn.one_hot(observation[1+5:1+5+4], positionCount))
+  opponentAcrossBoardPositions = jnp.concat(jax.nn.one_hot(observation[1+5+4:1+5+4+4], positionCount))
+  return jnp.concat([haveOpponentAcrossBoard, cardOneHots, selfPositions, opponentAcrossBoardPositions])
+
 class TrainingUtilClass:
   def __init__(self, summaryWriter, checkpointName=None):
     self.summaryWriter = summaryWriter
@@ -516,9 +528,6 @@ class TrainingUtilClass:
     # self.getProbabilityActionTupleAndGradient = nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True)
     self.getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
 
-    # Compile the value network inference function
-    self.getValueAndValueGradient = nnx.jit(nnx.value_and_grad(getValue))
-
   def setSeed(self, seed):
     self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
 
@@ -529,20 +538,22 @@ class TrainingUtilClass:
     logits = self.policyNetwork(input)
     self.summaryWriter.add_histogram('logits', logits, episodeIndex)
 
-  def getPolicyGradientAndActionTuple(self, data, actions):
+  def getPolicyGradientAndActionTuple(self, observation, actions):
     # Pad actions up to the nearest power of 2
     newActionsLength = int(2**math.ceil(math.log2(len(actions))))
     originalSize = len(actions)
     padSize = newActionsLength - len(actions)
     actions = jnp.asarray(actions, dtype=jnp.int32)
-    actions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
-    validActions = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
-    validActions = validActions[:, None]
-    ((logProbability, actionTuple), gradient) = self.getProbabilityActionTupleAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, data, actions, validActions)
+    paddedActions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
+    validActionMask = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
+    validActionMask = validActionMask[:, None]
+    observation = createObservationForModel(jnp.asarray(observation))
+    ((logProbability, actionTuple), gradient) = self.getProbabilityActionTupleAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, observation, paddedActions, validActionMask)
     return gradient, actionTuple
 
-  def getValueGradientAndValue(self, data):
-    (value, gradient) = self.getValueAndValueGradient(self.valueNetwork, data)
+  def getValueGradientAndValue(self, observation):
+    observation = createObservationForModel(jnp.asarray(observation))
+    (value, gradient) = jittedGetValueAndValueGradient(self.valueNetwork, observation)
     return gradient, value
 
   def initializePolicyOptimizer(self, learningRate):
@@ -570,7 +581,7 @@ class TrainingUtilClass:
     self.valueNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'value_optimizer', abstractOptStateTree)
     print('loaded ValueOptimizerCheckpoint')
 
-  def train(self, policyGradientsForTrajectories, valueGradientsForTrajectories, rewardsForTrajectories, valuesForTrajectories, gamma, episodeIndex):
+  def train(self, policyGradientsForTrajectories, rewardsForTrajectories, observationsForTrajectories, gamma, episodeIndex):
     # Pad up to the nearest power of 2
     maxLength = max([len(x) for x in policyGradientsForTrajectories])
     newLength = int(2**math.ceil(math.log2(maxLength)))
@@ -586,22 +597,18 @@ class TrainingUtilClass:
     stackedAndPaddedPolicyGradientsForTrajectories = [jax.tree.map(leftPadToMaxSizeWithZeros, jax.tree.map(lambda *x: jnp.stack(x), *policyGradients)) for policyGradients in policyGradientsForTrajectories]
     stackedAndPaddedPolicyGradients = jax.tree.map(lambda *x: jnp.stack(x), *stackedAndPaddedPolicyGradientsForTrajectories)
 
-    # Stack and pad value gradients
-    stackedAndPaddedValueGradientsForTrajectories = [jax.tree.map(leftPadToMaxSizeWithZeros, jax.tree.map(lambda *x: jnp.stack(x), *valueGradients)) for valueGradients in valueGradientsForTrajectories]
-    stackedAndPaddedValueGradients = jax.tree.map(lambda *x: jnp.stack(x), *stackedAndPaddedValueGradientsForTrajectories)
-
     # Stack and pad rewards
     paddedRewardsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in rewardsForTrajectories]
     stackedAndPaddedRewards = jnp.stack(paddedRewardsForTrajectories)
 
     # Stack and pad values
-    paddedValuesForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in valuesForTrajectories]
-    stackedAndPaddedValues = jnp.stack(paddedValuesForTrajectories)
+    paddedObservationsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in observationsForTrajectories]
+    stackedAndPaddedObservations = jnp.stack(paddedObservationsForTrajectories)
 
     # Create a mask
     masks = jnp.asarray([jnp.concatenate([jnp.zeros(newLength-len(x)), jnp.ones(len(x))]) for x in policyGradientsForTrajectories])
 
-    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedValueGradients, stackedAndPaddedRewards, stackedAndPaddedValues, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
+    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedRewards, stackedAndPaddedObservations, self.valueNetwork, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
     self.summaryWriter.add_scalar("episode/tdErrorMean", tdMean, episodeIndex)
     self.summaryWriter.add_scalar("episode/tdErrorStdDev", tdStddev, episodeIndex)
 

@@ -1,5 +1,7 @@
 #include "common.hpp"
 
+#include <sorry/engine/common.hpp>
+
 #include <pybind11/eval.h>
 
 #include <iostream>
@@ -106,6 +108,69 @@ size_t cardToCardIndex(sorry::engine::Card card) {
     case sorry::engine::Card::kSorry: return 10;
     default: throw std::runtime_error("Invalid card");
   }
+}
+
+std::vector<int> makeObservation(const sorry::engine::Sorry &sorry) {
+  // Rather than do all the creation of numpy one-hots here, we'll just create a small array with integers for the observation. In JAX, we can blow them up to the right format for our models.
+  std::vector<int> result;
+
+  // -=-=- Who is playing? -=-=-
+  // In order to represent who is playing, we have 3 bools, one for the player to our left, one for the player across from us, and one for the player to our right.
+  // We represent other players as their position relative to us. Color does not matter.
+  const std::vector<sorry::engine::PlayerColor> players = sorry.getPlayers();
+  const sorry::engine::PlayerColor ourColor = sorry.getPlayerTurn();
+
+  // const sorry::engine::PlayerColor leftColor = sorry::engine::common::rotatePlayerColor(ourColor, 1);
+  // const bool haveOpponentToOurLeft = std::find(players.begin(), players.end(), leftColor) != players.end();
+  // result.push_back(haveOpponentToOurLeft ? 1 : 0);
+
+  const sorry::engine::PlayerColor acrossColor = sorry::engine::common::rotatePlayerColor(ourColor, 2);
+  const bool haveOpponentAcross = std::find(players.begin(), players.end(), acrossColor) != players.end();
+  result.push_back(haveOpponentAcross ? 1 : 0);
+
+  // const sorry::engine::PlayerColor rightColor = sorry::engine::common::rotatePlayerColor(ourColor, 3);
+  // const bool haveOpponentToOurRight = std::find(players.begin(), players.end(), rightColor) != players.end();
+  // result.push_back(haveOpponentToOurRight ? 1 : 0);
+
+  // -=-=- What cards do we have? -=-=-
+  const std::array<sorry::engine::Card, 5> playerHand = sorry.getHandForPlayer(ourColor);
+  for (sorry::engine::Card card : playerHand) {
+    result.push_back(common::cardToCardIndex(card));
+  }
+
+  auto addPiecePositionsForPlayer = [&](sorry::engine::PlayerColor playerColor) {
+    const std::array<int, 4> piecePositions = sorry.getPiecePositionsForPlayer(playerColor);
+    for (int position : piecePositions) {
+      result.push_back(position);
+    }
+  };
+
+  // -=-=- Where are the pieces on the board? -=-=-
+  addPiecePositionsForPlayer(ourColor);
+
+  // if (haveOpponentToOurLeft) {
+  //   addPiecePositionsForPlayer(leftColor);
+  // } else {
+  //   // If we don't have an opponent to our left, we'll just add 4 zeros.
+  //   result.insert(result.end(), 4, 0);
+  // }
+
+  if (haveOpponentAcross) {
+    addPiecePositionsForPlayer(acrossColor);
+  } else {
+    // If we don't have an opponent across from us, we'll just add 4 zeros.
+    result.insert(result.end(), 4, 0);
+  }
+
+  // if (haveOpponentToOurRight) {
+  //   addPiecePositionsForPlayer(rightColor);
+  // } else {
+  //   // If we don't have an opponent to our right, we'll just add 4 zeros.
+  //   result.insert(result.end(), 4, 0);
+  // }
+
+  // TODO: Add the discarded cards to the observation.
+  return result;
 }
 
 py::array_t<float> makeNumpyObservation(const sorry::engine::Sorry &sorry) {

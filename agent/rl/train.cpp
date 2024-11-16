@@ -99,7 +99,7 @@ public:
     return totalReward / rewards.size();
   }
 private:
-  static constexpr int kBufferSize = 31;
+  static constexpr int kBufferSize = 101;
   std::deque<float> rewards;
   float totalReward{0.0};
 };
@@ -132,8 +132,8 @@ public:
     constexpr int kEpisodeCount = 1'000'000;
     int episodeIndex = 0;
     constexpr int kBatchSize = 1;
-    std::vector<Trajectory> batchTrajectories(kBatchSize);
     while (episodeIndex<kEpisodeCount) {
+      std::vector<Trajectory> batchTrajectories(kBatchSize);
       for (int i=0; i<kBatchSize; ++i) {
         if (episodeIndex >= kEpisodeCount) {
           // TODO: If this ends on an incomplete batch, the model should not be trained.
@@ -151,7 +151,7 @@ public:
       // A batch of trajectories has been generated, now train the model
       {
         ScopedTimer timer(summaryWriter_, "training_util_train", episodeIndex);
-        pythonTrainingUtil_->train(batchTrajectories, episodeIndex);
+        pythonTrainingUtil_->train(std::move(batchTrajectories), episodeIndex);
       }
     }
   }
@@ -165,8 +165,8 @@ private:
   std::vector<OpponentStats> opponentStats_;
 
   bool shouldAddSelfToPool() const {
-    constexpr int kMinGamesPerOpponent = 31;
-    constexpr float kMinAverageReward = 0.5; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
+    constexpr int kMinGamesPerOpponent = 101;
+    constexpr float kMinAverageReward = 0.8; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
     // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
     // The minimum average reward should be at least `kMinAverageReward`.
     std::cout << "Stats: Game counts: [ ";
@@ -206,7 +206,6 @@ private:
     // Randomly choose one opponent from the pool
     std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
     size_t opponentIndex = dist(randomEngine_);
-    std::cout << "Playing against opponent #" << opponentIndex << std::endl;
     sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
 
     // Generate a full trajectory according to the policy
@@ -232,12 +231,7 @@ private:
       } else {
         // It is our turn
         py::object policyGradient;
-        py::object valueGradient;
-        float value;
-        py::object observation = common::makeNumpyObservation(sorry);
-
-        // TODO: Rather than getting the value & value gradient here, I could simply save the observation in the trajectory and get it later during training.
-        std::tie(valueGradient, value) = pythonTrainingUtil_->getValueGradientAndValue(observation);
+        std::vector<int> observation = common::makeObservation(sorry);
 
         // Take an action according to the policy, masked by the valid actions
         const std::vector<sorry::engine::Action> actions = sorry.getActions();
@@ -257,7 +251,7 @@ private:
         sorry.doAction(action, randomEngine_);
 
         // Store the observation into a python-read trajectory data structure
-        trajectory.pushStep(policyGradient, 0.0, valueGradient, value);
+        trajectory.pushStep(policyGradient, 0.0, std::move(observation));
       }
     }
 
@@ -274,7 +268,7 @@ private:
     summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), reward, episodeIndex);
     summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
 
-    if ((episodeIndex+1)%100 == 0) {
+    if ((episodeIndex+1)%10 == 0) {
       cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
       if ((episodeIndex+1)%1000 == 0) {
         pythonTrainingUtil_->saveCheckpoint();
@@ -310,7 +304,7 @@ void loadModel() {
   sorry.reset(randomEngine);
   while (!sorry.gameDone()) {
     // Create the observation
-    py::object observation = common::makeNumpyObservation(sorry);
+    std::vector<int> observation = common::makeObservation(sorry);
 
     // Create the action mask for valid actions as a numpy array
     py::array_t<float> actionMask(ActionMap::getInstance().totalActionCount());
