@@ -432,7 +432,7 @@ class InferenceClass:
 # ================================================================================================
 
 # @nnx.jit
-def updateModels(policyGradients, rewards, observations, valueNetwork, masks, gamma, policyOptimizer, valueOptimizer):
+def updateModels(rewards, observations, rngKeys, validActions, policyNetwork, valueNetwork, masks, gamma, policyOptimizer, valueOptimizer):
   def calculateReturns(rewards, gamma):
     # Calculate returns for all timesteps at once using JAX operations
     length = len(rewards)
@@ -447,6 +447,11 @@ def updateModels(policyGradients, rewards, observations, valueNetwork, masks, ga
 
   vectorizedCalculateReturns = jax.vmap(calculateReturns, in_axes=(0, None))
   vectorizedDiscountCalculation = jax.vmap(lambda x, m, g: g**(jnp.arange(len(x)) - (len(x)-jnp.sum(m))), in_axes=(0, 0, None))
+
+  # TODO: Using observations, get the policy gradients
+  # nnx.grad(getProbabilityAndActionTuple, argnums=1, has_aux=True)(policyNetwork, observations, rewards, masks)
+  #   (logProbability, actionTuple) = self.getProbabilityAndActionTuple(self.rngs.myAdditionalStream(), self.policyNetwork, observation, paddedActions, validActionMask)
+
 
   # Using the observations, get the values and value gradients
   # Two vmaps, one for batch dimension, second for time dimension
@@ -524,9 +529,9 @@ class TrainingUtilClass:
     # Initialize the checkpointer
     self.checkpointer = ocp.StandardCheckpointer()
 
-    # Compile the policy network inference function
-    # self.getProbabilityActionTupleAndGradient = nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True)
+    # Compile the policy network inference functions
     self.getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
+    self.getProbabilityAndActionTuple = nnx.jit(getProbabilityAndActionTuple)
 
   def setSeed(self, seed):
     self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
@@ -538,7 +543,7 @@ class TrainingUtilClass:
     logits = self.policyNetwork(input)
     self.summaryWriter.add_histogram('logits', logits, episodeIndex)
 
-  def getPolicyGradientAndActionTuple(self, observation, actions):
+  def getActionTupleAndKeyUsed(self, observation, actions):
     # Pad actions up to the nearest power of 2
     newActionsLength = int(2**math.ceil(math.log2(len(actions))))
     originalSize = len(actions)
@@ -548,8 +553,9 @@ class TrainingUtilClass:
     validActionMask = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
     validActionMask = validActionMask[:, None]
     observation = createObservationForModel(jnp.asarray(observation))
-    ((logProbability, actionTuple), gradient) = self.getProbabilityActionTupleAndGradient(self.rngs.myAdditionalStream(), self.policyNetwork, observation, paddedActions, validActionMask)
-    return gradient, actionTuple
+    rngKey = self.rngs.myAdditionalStream()
+    (logProbability, actionTuple) = self.getProbabilityAndActionTuple(rngKey, self.policyNetwork, observation, paddedActions, validActionMask)
+    return actionTuple, rngKey
 
   def getValueGradientAndValue(self, observation):
     observation = createObservationForModel(jnp.asarray(observation))
@@ -581,34 +587,58 @@ class TrainingUtilClass:
     self.valueNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'value_optimizer', abstractOptStateTree)
     print('loaded ValueOptimizerCheckpoint')
 
-  def train(self, policyGradientsForTrajectories, rewardsForTrajectories, observationsForTrajectories, gamma, episodeIndex):
+  def train(self, rewardsForTrajectories, observationsForTrajectories, rngKeysForTrajectories, validActionsArraysForTrajectories, gamma, episodeIndex):
     # Pad up to the nearest power of 2
-    maxLength = max([len(x) for x in policyGradientsForTrajectories])
-    newLength = int(2**math.ceil(math.log2(maxLength)))
+    longestTrajectoryLength = max([len(x) for x in observationsForTrajectories])
+    paddedTrajectoryLength = int(2**math.ceil(math.log2(longestTrajectoryLength)))
     # print(f'Lengths: {[len(x) for x in policyGradientsForTrajectories]}')
-    # print(f'Max length is {maxLength}, new length will be {newLength}')
+    # print(f'Max length is {longestTrajectoryLength}, new length will be {paddedTrajectoryLength}')
 
-    # Define a padding function
-    def leftPadToMaxSizeWithZeros(x):
-      pad_width = [(newLength - x.shape[0], 0)] + [(0, 0)] * (x.ndim - 1)
+    # Define a padding functions
+    def leftPadToMaxSizeWithZeros(x, newSize):
+      pad_width = [(newSize - x.shape[0], 0)] + [(0, 0)] * (x.ndim - 1)
+      return jnp.pad(x, pad_width, mode='constant', constant_values=0)
+    def rightPadToMaxSizeWithZeros(x, newSize):
+      pad_width = [(0, newSize - x.shape[0])] + [(0, 0)] * (x.ndim - 1)
       return jnp.pad(x, pad_width, mode='constant', constant_values=0)
 
-    # Stack and pad policy gradients
-    stackedAndPaddedPolicyGradientsForTrajectories = [jax.tree.map(leftPadToMaxSizeWithZeros, jax.tree.map(lambda *x: jnp.stack(x), *policyGradients)) for policyGradients in policyGradientsForTrajectories]
-    stackedAndPaddedPolicyGradients = jax.tree.map(lambda *x: jnp.stack(x), *stackedAndPaddedPolicyGradientsForTrajectories)
-
     # Stack and pad rewards
-    paddedRewardsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in rewardsForTrajectories]
+    paddedRewardsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x), paddedTrajectoryLength) for x in rewardsForTrajectories]
     stackedAndPaddedRewards = jnp.stack(paddedRewardsForTrajectories)
 
-    # Stack and pad values
-    paddedObservationsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x)) for x in observationsForTrajectories]
+    # Stack and pad observations
+    paddedObservationsForTrajectories = [leftPadToMaxSizeWithZeros(jnp.asarray(x), paddedTrajectoryLength) for x in observationsForTrajectories]
     stackedAndPaddedObservations = jnp.stack(paddedObservationsForTrajectories)
 
-    # Create a mask
-    masks = jnp.asarray([jnp.concatenate([jnp.zeros(newLength-len(x)), jnp.ones(len(x))]) for x in policyGradientsForTrajectories])
+    # Stack and pad rngKeys
+    paddedRngKeysForTrajectories = [jnp.stack([jax.random.key(0)]*(paddedTrajectoryLength-len(x)) + x) for x in rngKeysForTrajectories]
+    stackedAndPaddedRngKeys = jnp.stack(paddedRngKeysForTrajectories)
 
-    tdMean, tdStddev = updateModels(stackedAndPaddedPolicyGradients, stackedAndPaddedRewards, stackedAndPaddedObservations, self.valueNetwork, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
+    # Get the most number of actions for any observation
+    mostActions = 0
+    for trajectory in validActionsArraysForTrajectories:
+      for actions in trajectory:
+        if len(actions) > mostActions:
+          mostActions = len(actions)
+    paddedActionsLength = int(2**math.ceil(math.log2(mostActions)))
+
+    # Stack and pad valid action arrays
+    paddedValidActionArraysForTrajectories = [leftPadToMaxSizeWithZeros(jnp.stack([rightPadToMaxSizeWithZeros(jnp.asarray(actions, dtype=jnp.int32), paddedActionsLength) for actions in trajectory]), paddedTrajectoryLength) for trajectory in validActionsArraysForTrajectories]
+    stackedAndPaddedValidActionArrays = jnp.stack(paddedValidActionArraysForTrajectories)
+
+    # TODO: ======== Need to created padded mask for actions ========
+    finalActionMasks = []
+    for i in range(stackedAndPaddedValidActionArrays.shape[0]):
+      trajectoryActionMasks = []
+      for j in range(stackedAndPaddedValidActionArrays.shape[1]):
+        validActionMask = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
+        validActionMask = validActionMask[:, None]
+    # TODO: ======== Need to created padded mask for actions ========
+
+    # Create a mask
+    masks = jnp.asarray([jnp.concatenate([jnp.zeros(paddedTrajectoryLength-len(x)), jnp.ones(len(x))]) for x in observationsForTrajectories])
+
+    tdMean, tdStddev = updateModels(stackedAndPaddedRewards, stackedAndPaddedObservations, stackedAndPaddedRngKeys, stackedAndPaddedValidActionArrays, self.policyNetwork, self.valueNetwork, masks, gamma, self.policyNetworkOptimizer, self.valueNetworkOptimizer)
     self.summaryWriter.add_scalar("episode/tdErrorMean", tdMean, episodeIndex)
     self.summaryWriter.add_scalar("episode/tdErrorStdDev", tdStddev, episodeIndex)
 

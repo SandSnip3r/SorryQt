@@ -31,32 +31,31 @@ void TrainingUtil::setSeed(int seed) {
   trainingUtilInstance_.attr("setSeed")(seed);
 }
 
-std::pair<py::object, sorry::engine::Action> TrainingUtil::getPolicyGradientAndAction(
+std::pair<sorry::engine::Action, py::object> TrainingUtil::getActionAndKeyUsed(
     const std::vector<int> &observation,
     sorry::engine::PlayerColor playerColor,
     int episodeIndex,
-    const std::vector<sorry::engine::Action> &validActions) {
-  std::vector<std::vector<int>> actionsArray = common::createArrayOfActions(validActions);
-  py::tuple result = trainingUtilInstance_.attr("getPolicyGradientAndActionTuple")(observation, actionsArray);
-  // trainingUtilInstance_.attr("logLogitStatistics")(observation, episodeIndex);
-
+    const std::vector<std::vector<int>> &validActionsArray) {
   // Take an action according to the policy
-  py::object gradient = result[0];
-  py::tuple tuple = result[1].cast<py::tuple>();
-  return {gradient, common::actionFromTuple(tuple, playerColor)};
+  py::tuple actionAndKey = trainingUtilInstance_.attr("getActionTupleAndKeyUsed")(observation, validActionsArray);
+  py::tuple actionTuple = actionAndKey[0].cast<py::tuple>();
+  py::object rngKey = actionAndKey[1];
+  return {common::actionFromTuple(actionTuple, playerColor), rngKey};
 }
 
 void TrainingUtil::train(std::vector<Trajectory> &&trajectories, int episodeIndex) {
   // Change from an array of structs to struct of arrays
-  std::vector<std::vector<py::object>> policyGradients;
   std::vector<std::vector<float>> rewards;
   std::vector<std::vector<std::vector<int>>> observations;
+  std::vector<std::vector<pybind11::object>> rngKeys;
+  std::vector<std::vector<std::vector<std::vector<int>>>> validActionsArrays;
   for (Trajectory &trajectory : trajectories) {
-    policyGradients.emplace_back(std::move(trajectory.policyGradients));
     rewards.emplace_back(std::move(trajectory.rewards));
     observations.emplace_back(std::move(trajectory.observations));
+    rngKeys.emplace_back(std::move(trajectory.rngKeys));
+    validActionsArrays.emplace_back(std::move(trajectory.validActionsArrays));
   }
-  trainingUtilInstance_.attr("train")(policyGradients, rewards, observations, kGamma, episodeIndex);
+  trainingUtilInstance_.attr("train")(rewards, observations, rngKeys, validActionsArrays, kGamma, episodeIndex);
 }
 
 void TrainingUtil::saveCheckpoint() {

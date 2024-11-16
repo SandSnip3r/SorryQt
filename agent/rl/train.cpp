@@ -230,13 +230,14 @@ private:
         sorry.doAction(action, randomEngine_);
       } else {
         // It is our turn
-        py::object policyGradient;
         std::vector<int> observation = common::makeObservation(sorry);
 
         // Take an action according to the policy, masked by the valid actions
         const std::vector<sorry::engine::Action> actions = sorry.getActions();
+        std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(actions);
         sorry::engine::Action action;
-        std::tie(policyGradient, action) = pythonTrainingUtil_->getPolicyGradientAndAction(observation, sorry.getPlayerTurn(), episodeIndex, actions);
+        py::object rngKey;
+        std::tie(action, rngKey) = pythonTrainingUtil_->getActionAndKeyUsed(observation, sorry.getPlayerTurn(), episodeIndex, validActionsArray);
 
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Current state: " << sorry.toString() << std::endl;
@@ -251,7 +252,7 @@ private:
         sorry.doAction(action, randomEngine_);
 
         // Store the observation into a python-read trajectory data structure
-        trajectory.pushStep(policyGradient, 0.0, std::move(observation));
+        trajectory.pushStep(/*reward=*/0.0, std::move(observation), rngKey, std::move(validActionsArray));
       }
     }
 

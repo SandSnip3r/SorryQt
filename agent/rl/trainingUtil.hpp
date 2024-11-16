@@ -18,11 +18,11 @@ public:
   void setSeed(int seed);
   pybind11::object getPythonTrainingUtilInstance() const { return trainingUtilInstance_; }
 
-  std::pair<pybind11::object, sorry::engine::Action> getPolicyGradientAndAction(
+  std::pair<sorry::engine::Action, pybind11::object> getActionAndKeyUsed(
       const std::vector<int> &observation,
       sorry::engine::PlayerColor playerColor,
       int episodeIndex,
-      const std::vector<sorry::engine::Action> &validActions);
+      const std::vector<std::vector<int>> &validActionsArray);
 
   std::pair<pybind11::object, float> getValueGradientAndValue(const std::vector<int> &observation);
 
