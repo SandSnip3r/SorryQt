@@ -122,11 +122,13 @@ public:
     resetOpponentStats();
 
     // Seed all random engines
-    constexpr int kSeed = 0x5EED;
+    constexpr int kSeed = 0x533D;
     randomEngine_ = std::mt19937{kSeed};
     pythonTrainingUtil_->setSeed(kSeed);
-    // Also see our random opponent
-    opponentPool_.back()->seed(kSeed);
+    // Seed our opponents
+    for (sorry::agent::BaseAgent *opponent : opponentPool_) {
+      opponent->seed(kSeed);
+    }
 
     // Start training
     constexpr int kEpisodeCount = 1'000'000;
@@ -156,6 +158,9 @@ public:
     }
   }
 private:
+  static constexpr bool kAddSelfToPool{false}; // TODO: Enable.
+  static constexpr int kPrintEpisodeCompletionFrequency{10};
+  static constexpr int kSaveCheckpointFrequency{10};
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
   static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
@@ -165,6 +170,10 @@ private:
   std::vector<OpponentStats> opponentStats_;
 
   bool shouldAddSelfToPool() const {
+    if (!kAddSelfToPool) {
+      //  For now, we are just focused on doing as well as possible against the initial opponent.
+      return false;
+    }
     constexpr int kMinGamesPerOpponent = 101;
     constexpr float kMinAverageReward = 0.8; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
     // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
@@ -213,7 +222,7 @@ private:
       // Who's turn is it?
       const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
       if (playerTurn == opponentColor_) {
-        // Let the opponent take a turn
+        // It is the opponent's turn.
         sorry::engine::Action action;
         if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent) != nullptr) {
           // Reinforce Agent was trained to play as green. Rotate the board so that they play from our position.
@@ -229,16 +238,17 @@ private:
         }
         sorry.doAction(action, randomEngine_);
       } else {
-        // It is our turn
+        // It is our turn.
         std::vector<int> observation = common::makeObservation(sorry);
 
-        // Take an action according to the policy, masked by the valid actions
+        // Take an action according to the policy, masked by the valid actions.
         const std::vector<sorry::engine::Action> actions = sorry.getActions();
         std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(actions);
         sorry::engine::Action action;
         py::object rngKey;
         std::tie(action, rngKey) = pythonTrainingUtil_->getActionAndKeyUsed(observation, sorry.getPlayerTurn(), episodeIndex, validActionsArray);
 
+        // Do a quick check to make sure the model's action is valid.
         if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
           std::cout << "Current state: " << sorry.toString() << std::endl;
           std::cout << "Valid actions were:" << std::endl;
@@ -248,10 +258,10 @@ private:
           throw std::runtime_error("Invalid action after mask "+action.toString());
         }
 
-        // Take action in game
+        // Take action in game.
         sorry.doAction(action, randomEngine_);
 
-        // Store the observation into a python-read trajectory data structure
+        // Save the trajectory for a later training step.
         trajectory.pushStep(/*reward=*/0.0, std::move(observation), rngKey, std::move(validActionsArray));
       }
     }
@@ -267,12 +277,14 @@ private:
     opponentStats_.at(opponentIndex).pushGameResult(reward);
     trajectory.setLastReward(reward);
     summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), reward, episodeIndex);
-    summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
+    if (kAddSelfToPool) {
+      summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
+    }
 
-    if ((episodeIndex+1)%10 == 0) {
+    if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
       cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
-      if ((episodeIndex+1)%1000 == 0) {
-        pythonTrainingUtil_->saveCheckpoint();
+      if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
+        // pythonTrainingUtil_->saveCheckpoint();
       }
     }
   }

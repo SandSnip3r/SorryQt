@@ -29,7 +29,7 @@ public:
   void train(std::vector<Trajectory> &&trajectories, int episodeIndex);
   void saveCheckpoint();
 private:
-  static constexpr float kGamma{0.999};
+  static constexpr float kGamma{0.99};
   static constexpr float kPolicyNetworkLearningRate{0.001};
   static constexpr float kValueNetworkLearningRate{0.00005};
   pybind11::module jaxModule_;
