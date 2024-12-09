@@ -6,6 +6,7 @@
 #include <sorry/agent/random/randomAgent.hpp>
 #include <sorry/agent/rl/reinforceAgent.hpp>
 #include <sorry/common/common.hpp>
+#include <sorry/engine/common.hpp>
 #include <sorry/engine/sorry.hpp>
 
 #include <pybind11/embed.h>
@@ -76,6 +77,50 @@ void simulateRandomGames() {
 }
 
 // =================================================================================================
+
+class RewardTracker {
+public:
+  RewardTracker(const sorry::engine::Sorry &sorry, sorry::engine::PlayerColor ourColor, sorry::engine::PlayerColor opponentColor) : ourColor_(ourColor), opponentColor_(opponentColor) {
+    ourLastPiecePositions_ = sorry.getPiecePositionsForPlayer(ourColor_);
+    opponentLastPiecePositions_ = sorry.getPiecePositionsForPlayer(opponentColor_);
+  }
+
+  float calculateRewardForCurrentStateOfGame(const sorry::engine::Sorry &sorry) {
+    auto sumAsGreen = [](const std::array<int,4> &piecePositions, sorry::engine::PlayerColor color) {
+      const int count = sorry::engine::common::rotationCount(color, sorry::engine::PlayerColor::kGreen);
+      int sum = 0;
+      for (int pos : piecePositions) {
+        sum += sorry::engine::common::rotatePosition(pos, count);
+      }
+      return sum;
+    };
+
+    float totalReward = 0.0;
+    // Sum the positions of all pieces for each player.
+    // We will scale each players' progress from [0+0+0+0, 66+66+66+66] to [0.0, 1.0].
+    //  All 0's means all pieces are in start.
+    //  All 66's means all pieces are in home.
+
+    // How does our current position compare to our last position?
+    const int ourLastSum = sumAsGreen(ourLastPiecePositions_, ourColor_);
+    ourLastPiecePositions_ = sorry.getPiecePositionsForPlayer(ourColor_);
+    const int ourCurrentSum = sumAsGreen(ourLastPiecePositions_, ourColor_);
+    totalReward += (ourCurrentSum - ourLastSum) / (66.0*4);
+
+    // How does the opponent's current position compare to their last position?
+    const int opponentLastSum = sumAsGreen(opponentLastPiecePositions_, opponentColor_);
+    opponentLastPiecePositions_ = sorry.getPiecePositionsForPlayer(opponentColor_);
+    const int opponentCurrentSum = sumAsGreen(opponentLastPiecePositions_, opponentColor_);
+    totalReward -= (opponentCurrentSum - opponentLastSum) / (66.0*4);
+
+    return totalReward;
+  }
+private:
+  sorry::engine::PlayerColor ourColor_;
+  sorry::engine::PlayerColor opponentColor_;
+  std::array<int,4> ourLastPiecePositions_;
+  std::array<int,4> opponentLastPiecePositions_;
+};
 
 struct OpponentStats {
 public:
@@ -216,6 +261,7 @@ private:
     std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
     size_t opponentIndex = dist(randomEngine_);
     sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
+    RewardTracker rewardTracker(sorry, ourColor_, opponentColor_);
 
     // Generate a full trajectory according to the policy
     while (!sorry.gameDone()) {
@@ -240,6 +286,12 @@ private:
       } else {
         // It is our turn.
         std::vector<int> observation = common::makeObservation(sorry);
+
+        if (trajectory.size() > 0) {
+          // Calculate the reward for the previous action we took.
+          float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
+          trajectory.setLastReward(reward);
+        }
 
         // Take an action according to the policy, masked by the valid actions.
         const std::vector<sorry::engine::Action> actions = sorry.getActions();
@@ -266,17 +318,19 @@ private:
       }
     }
 
-    float reward;
+    float gameResult;
     // Who won?
     sorry::engine::PlayerColor winner = sorry.getWinner();
     if (winner == ourColor_) {
-      reward = 1.0;
+      gameResult = 1.0;
     } else {
-      reward = -1.0;
+      gameResult = -1.0;
     }
-    opponentStats_.at(opponentIndex).pushGameResult(reward);
-    trajectory.setLastReward(reward);
-    summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), reward, episodeIndex);
+    opponentStats_.at(opponentIndex).pushGameResult(gameResult);
+    const float finalReward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
+    trajectory.setLastReward(finalReward);
+    summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), trajectory.getCumulativeReward(), episodeIndex);
+    summaryWriter_.attr("add_scalar")("episode/result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
     if (kAddSelfToPool) {
       summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
     }

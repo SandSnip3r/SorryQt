@@ -4,6 +4,7 @@
 #include <pybind11/pybind11.h>
 
 #include <cstddef>
+#include <numeric>
 #include <vector>
 
 class Trajectory {
@@ -13,6 +14,7 @@ public:
   void reset();
   size_t size() const { return observations.size(); }
   void setLastReward(double reward);
+  float getCumulativeReward() const { return std::accumulate(rewards.begin(), rewards.end(), 0.0); }
 
   std::vector<float> rewards;
   std::vector<std::vector<int>> observations;
