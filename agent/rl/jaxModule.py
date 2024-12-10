@@ -407,7 +407,7 @@ class InferenceClass:
     _, action = self.getStochasticActionTuple(clonedRngStream.myAdditionalStream(), modelClone, observation, actions, validActions)
     return action
 
-  def getProbabilitiesAndSelectedIndex(self, data, actions, clone=True):
+  def getProbabilitiesAndSelectedIndex(self, observation, actions, clone=True):
     print(f'InferenceClass::getProbabilitiesAndSelectedIndex')
     # Pad actions up to the nearest power of 2
     newActionsLength = int(2**math.ceil(math.log2(len(actions))))
@@ -423,9 +423,9 @@ class InferenceClass:
       # If we're calling this function from another thread from C++, due to JAX's trace contexts, we need to clone the model
       # TODO: Manage the model at the C++ level
       modelClone = nnx.clone(self.policyNetwork)
-      return self.getProbabilitiesAndIndex(modelClone, data, actions, validActions)
+      return self.getProbabilitiesAndIndex(modelClone, observation, actions, validActions)
     else:
-      return self.getProbabilitiesAndIndex(self.policyNetwork, data, actions, validActions)
+      return self.getProbabilitiesAndIndex(self.policyNetwork, observation, actions, validActions)
 
 # ================================================================================================
 # ================================================================================================
@@ -518,10 +518,16 @@ def createObservationForModel(observation):
   cardCount = 11
   positionCount = 67
   haveOpponentAcrossBoard = observation[0].reshape(1)
-  cardOneHots = jnp.concat(jax.nn.one_hot(observation[1:1+5], cardCount))
+
+  # Represent the cards
+  #  This representation is a one-hot encoding for each card, a 5x11 matrix.
+  # cardRepresentation = jnp.concat(jax.nn.one_hot(observation[1:1+5], cardCount))
+  #  This representation is kind of a N-hot, representing the number of cards of each type, where N is the number of cards of the given type. This is an 11x5 matrix.
+  cardRepresentation = jnp.concat((jnp.bincount(observation[1:1+5], length=cardCount) > jnp.arange(5).reshape(5,1)).astype(jnp.float32).transpose())
+
   selfPositions = jnp.concat(jax.nn.one_hot(observation[1+5:1+5+4], positionCount))
   opponentAcrossBoardPositions = jnp.concat(jax.nn.one_hot(observation[1+5+4:1+5+4+4], positionCount))
-  return jnp.concat([haveOpponentAcrossBoard, cardOneHots, selfPositions, opponentAcrossBoardPositions])
+  return jnp.concat([haveOpponentAcrossBoard, cardRepresentation, selfPositions, opponentAcrossBoardPositions])
 
 class TrainingUtilClass:
   def __init__(self, summaryWriter, checkpointName=None):
@@ -689,6 +695,8 @@ class TrainingUtilClass:
     self.checkpointer.save(valueNetworkPath, valueNetworkState, force=True)
     print(f'Value network saved')
 
+    print(f'Want to save optimizer state of type {type(self.policyNetworkOptimizer.opt_state)}')
+    print(f'{self.policyNetworkOptimizer.opt_state}')
     policyOptimizerStatePath = checkpointPath / 'policy_optimizer'
     self.checkpointer.save(policyOptimizerStatePath, self.policyNetworkOptimizer.opt_state, force=True)
     print(f'Policy optimizer saved')

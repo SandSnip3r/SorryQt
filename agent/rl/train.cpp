@@ -203,9 +203,9 @@ public:
     }
   }
 private:
-  static constexpr bool kAddSelfToPool{false}; // TODO: Enable.
+  static constexpr bool kAddSelfToPool{false};
   static constexpr int kPrintEpisodeCompletionFrequency{10};
-  static constexpr int kSaveCheckpointFrequency{10};
+  static constexpr int kSaveCheckpointFrequency{4};
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
   static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
@@ -337,9 +337,9 @@ private:
 
     if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
       cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
-      if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
-        // pythonTrainingUtil_->saveCheckpoint();
-      }
+    }
+    if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
+      // pythonTrainingUtil_->saveCheckpoint();
     }
   }
 
