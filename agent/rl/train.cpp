@@ -154,7 +154,7 @@ public:
   void trainReinforce() {
     // Load the Python module
     using namespace pybind11::literals;
-    py::module jaxModule = py::module::import("jaxModule");
+    py::module jaxModule = py::module::import("reinforce_with_baseline.py");
     py::module tensorboardX = py::module::import("tensorboardX");
     summaryWriter_ = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
 
@@ -358,7 +358,7 @@ private:
 // =================================================================================================
 
 void loadModel() {
-  py::module jaxModule = py::module::import("jaxModule");
+  py::module jaxModule = py::module::import("reinforce_with_baseline.py");
   py::object InferenceClass = jaxModule.attr("InferenceClass");
   py::object inferenceInstance = InferenceClass(ActionMap::getInstance().totalActionCount());
 

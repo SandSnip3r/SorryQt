@@ -29,7 +29,7 @@ void ReinforceAgent::initializeJaxModule() {
   pybind11::module sys = pybind11::module::import("sys");
   // Append the directory containing my_jax.py to sys.path, SOURCE_DIR is set from CMake.
   sys.attr("path").cast<pybind11::list>().append(std::string(SOURCE_DIR));
-  jaxModule_ = pybind11::module::import("jaxModule");
+  jaxModule_ = pybind11::module::import("reinforce_with_baseline");
 }
 
 void ReinforceAgent::seed(int seed) {
