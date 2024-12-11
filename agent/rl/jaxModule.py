@@ -596,17 +596,19 @@ class TrainingUtilClass:
   def loadPolicyOptimizerCheckpoint(self, learningRate, checkpointName):
     tx = optax.adam(learning_rate=learningRate)
     self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
-    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, self.policyNetworkOptimizer.opt_state)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.policyNetworkOptimizer))
     checkpointer = ocp.StandardCheckpointer()
-    self.policyNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'policy_optimizer', abstractOptStateTree)
+    optimizerState = checkpointer.restore(checkpointName/'policy_optimizer', abstractOptStateTree)
+    nnx.update(self.policyNetworkOptimizer, optimizerState)
     print('loaded PolicyOptimizerCheckpoint')
 
   def loadValueOptimizerCheckpoint(self, learningRate, checkpointName):
     tx = optax.adam(learning_rate=learningRate)
     self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
-    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, self.valueNetworkOptimizer.opt_state)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.valueNetworkOptimizer))
     checkpointer = ocp.StandardCheckpointer()
-    self.valueNetworkOptimizer.opt_state = checkpointer.restore(checkpointName/'value_optimizer', abstractOptStateTree)
+    optimizerState = checkpointer.restore(checkpointName/'value_optimizer', abstractOptStateTree)
+    nnx.update(self.valueNetworkOptimizer, optimizerState)
     print('loaded ValueOptimizerCheckpoint')
 
   def train(self, rewardsForTrajectories, observationsForTrajectories, rngKeysForTrajectories, validActionsArraysForTrajectories, gamma, episodeIndex):
@@ -695,13 +697,11 @@ class TrainingUtilClass:
     self.checkpointer.save(valueNetworkPath, valueNetworkState, force=True)
     print(f'Value network saved')
 
-    print(f'Want to save optimizer state of type {type(self.policyNetworkOptimizer.opt_state)}')
-    print(f'{self.policyNetworkOptimizer.opt_state}')
     policyOptimizerStatePath = checkpointPath / 'policy_optimizer'
-    self.checkpointer.save(policyOptimizerStatePath, self.policyNetworkOptimizer.opt_state, force=True)
+    self.checkpointer.save(policyOptimizerStatePath, nnx.state(self.policyNetworkOptimizer), force=True)
     print(f'Policy optimizer saved')
 
     valueOptimizerStatePath = checkpointPath / 'value_optimizer'
-    self.checkpointer.save(valueOptimizerStatePath, self.valueNetworkOptimizer.opt_state, force=True)
+    self.checkpointer.save(valueOptimizerStatePath, nnx.state(self.valueNetworkOptimizer), force=True)
     print(f'Value optimizer saved')
     print(f'Saved checkpoints at {checkpointPath}')
