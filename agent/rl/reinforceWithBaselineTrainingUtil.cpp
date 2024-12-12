@@ -1,6 +1,6 @@
 #include "actionMap.hpp"
 #include "common.hpp"
-#include "trainingUtil.hpp"
+#include "reinforceWithBaselineTrainingUtil.hpp"
 
 #include <pybind11/eval.h>
 #include <pybind11/stl.h>
@@ -12,7 +12,7 @@ namespace py = pybind11;
 
 namespace python_wrapper {
 
-TrainingUtil::TrainingUtil(pybind11::module jaxModule, py::object summaryWriter, std::optional<std::string> checkpointDirName) : jaxModule_(jaxModule), summaryWriter_(summaryWriter) {
+ReinforceWithBaselineTrainingUtil::ReinforceWithBaselineTrainingUtil(pybind11::module jaxModule, py::object summaryWriter, std::optional<std::string> checkpointDirName) : jaxModule_(jaxModule), summaryWriter_(summaryWriter) {
   // Instantiate the MyModel class from Python
   py::object TrainingUtilClass = jaxModule_.attr("TrainingUtilClass");
   // Create an instance of MyModel
@@ -27,11 +27,11 @@ TrainingUtil::TrainingUtil(pybind11::module jaxModule, py::object summaryWriter,
   }
 }
 
-void TrainingUtil::setSeed(int seed) {
+void ReinforceWithBaselineTrainingUtil::setSeed(int seed) {
   trainingUtilInstance_.attr("setSeed")(seed);
 }
 
-std::pair<sorry::engine::Action, py::object> TrainingUtil::getActionAndKeyUsed(
+std::pair<sorry::engine::Action, py::object> ReinforceWithBaselineTrainingUtil::getActionAndKeyUsed(
     const std::vector<int> &observation,
     sorry::engine::PlayerColor playerColor,
     int episodeIndex,
@@ -43,7 +43,7 @@ std::pair<sorry::engine::Action, py::object> TrainingUtil::getActionAndKeyUsed(
   return {common::actionFromTuple(actionTuple, playerColor), rngKey};
 }
 
-void TrainingUtil::train(std::vector<Trajectory> &&trajectories, int episodeIndex) {
+void ReinforceWithBaselineTrainingUtil::train(std::vector<Trajectory> &&trajectories, int episodeIndex) {
   // Change from an array of structs to struct of arrays
   std::vector<std::vector<float>> rewards;
   std::vector<std::vector<std::vector<int>>> observations;
@@ -58,7 +58,7 @@ void TrainingUtil::train(std::vector<Trajectory> &&trajectories, int episodeInde
   trainingUtilInstance_.attr("train")(rewards, observations, rngKeys, validActionsArrays, kGamma, episodeIndex);
 }
 
-void TrainingUtil::saveCheckpoint() {
+void ReinforceWithBaselineTrainingUtil::saveCheckpoint() {
   trainingUtilInstance_.attr("saveCheckpoint")();
 }
 

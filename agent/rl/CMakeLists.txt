@@ -18,7 +18,8 @@ set(TRAIN_SRC_FILES
   actionMap.cpp
   common.cpp
   train.cpp
-  trainingUtil.cpp
+  actorCriticTrainingUtil.cpp
+  reinforceWithBaselineTrainingUtil.cpp
   trajectory.cpp
 )
 

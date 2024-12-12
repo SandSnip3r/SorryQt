@@ -1,5 +1,5 @@
-#ifndef PYTHON_WRAPPER_TRAINING_UTIL_HPP_
-#define PYTHON_WRAPPER_TRAINING_UTIL_HPP_
+#ifndef PYTHON_WRAPPER_REINFORCE_WITH_BASELINE_TRAINING_UTIL_HPP_
+#define PYTHON_WRAPPER_REINFORCE_WITH_BASELINE_TRAINING_UTIL_HPP_
 
 #include "trajectory.hpp"
 
@@ -12,9 +12,9 @@
 
 namespace python_wrapper {
 
-class TrainingUtil {
+class ReinforceWithBaselineTrainingUtil {
 public:
-  TrainingUtil(pybind11::module jaxModule, pybind11::object summaryWriter, std::optional<std::string> checkpointDirName = std::nullopt);
+  ReinforceWithBaselineTrainingUtil(pybind11::module jaxModule, pybind11::object summaryWriter, std::optional<std::string> checkpointDirName = std::nullopt);
   void setSeed(int seed);
   pybind11::object getPythonTrainingUtilInstance() const { return trainingUtilInstance_; }
 
@@ -41,4 +41,4 @@ private:
 
 } // namespace python_wrapper
 
-#endif // PYTHON_WRAPPER_TRAINING_UTIL_HPP_
+#endif // PYTHON_WRAPPER_REINFORCE_WITH_BASELINE_TRAINING_UTIL_HPP_
