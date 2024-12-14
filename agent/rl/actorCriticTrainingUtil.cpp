@@ -1,15 +1,17 @@
 #include "actorCriticTrainingUtil.hpp"
 #include "common.hpp"
 
+#include <pybind11/stl.h>
+
+namespace py = pybind11;
+
 namespace python_wrapper {
 
-ActorCriticTrainingUtil::ActorCriticTrainingUtil(pybind11::module jaxModule, pybind11::object summaryWriter) : jaxModule_(jaxModule), summaryWriter_(summaryWriter) {
+ActorCriticTrainingUtil::ActorCriticTrainingUtil(pybind11::module jaxModule, pybind11::object summaryWriter, bool restoreFromCheckpoint) : jaxModule_(jaxModule), summaryWriter_(summaryWriter) {
   // Instantiate the MyModel class from Python
   pybind11::object TrainingUtilClass = jaxModule_.attr("TrainingUtilClass");
   // Create an instance of MyModel
-  trainingUtilInstance_ = TrainingUtilClass(summaryWriter_);
-  trainingUtilInstance_.attr("initializePolicyOptimizer")(kPolicyNetworkLearningRate);
-  trainingUtilInstance_.attr("initializeValueOptimizer")(kValueNetworkLearningRate);
+  trainingUtilInstance_ = TrainingUtilClass(summaryWriter_, kPolicyNetworkLearningRate, kValueNetworkLearningRate, kCheckpointDirectoryName, restoreFromCheckpoint);
 }
 
 void ActorCriticTrainingUtil::setSeed(int seed) {
@@ -28,8 +30,13 @@ std::pair<sorry::engine::Action, py::object> ActorCriticTrainingUtil::getActionA
   return {common::actionFromTuple(actionTuple, playerColor), rngKey};
 }
 
-void ActorCriticTrainingUtil::train(pybind11::object logProbabilityGradient, const std::vector<int> &lastObservation, const std::vector<int> &observation) {
-  // TODO
+float ActorCriticTrainingUtil::train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, py::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray) {
+  py::object loss = trainingUtilInstance_.attr("train")(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, kGamma);
+  return loss.cast<float>();
+}
+
+void ActorCriticTrainingUtil::saveCheckpoint() {
+  trainingUtilInstance_.attr("saveCheckpoint")();
 }
 
 } // namespace python_wrapper

@@ -194,47 +194,155 @@ def createObservationForModel(observation):
   opponentAcrossBoardPositions = jnp.concat(jax.nn.one_hot(observation[1+5+4:1+5+4+4], positionCount))
   return jnp.concat([haveOpponentAcrossBoard, cardRepresentation, selfPositions, opponentAcrossBoardPositions])
 
+def padActionsAndGetMask(validActions):
+  # Pad actions up to the nearest power of 2
+  newActionsLength = int(2**math.ceil(math.log2(len(validActions))))
+  originalSize = len(validActions)
+  padSize = newActionsLength - len(validActions)
+  validActions = jnp.asarray(validActions, dtype=jnp.int32)
+  paddedActions = jnp.pad(validActions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
+  validActionMask = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
+  validActionMask = validActionMask[:, None]
+  return paddedActions, validActionMask
+
+def updateAndReturnLoss(policyNetwork, valueNetwork, policyOptimizer, valueOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, gamma):
+  getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
+  (probability, actionTuple), policyGradient = getProbabilityActionTupleAndGradient(rngKey, policyNetwork, lastObservation, paddedActions, validActionMask)
+
+  # Calculate the advantage
+  lastValue = valueNetwork(lastObservation)
+  currentValue = valueNetwork(currentObservation)
+  advantage = reward + gamma * currentValue - lastValue
+
+  # Scale the policy gradient by the advantage
+  policyGradient = jax.tree.map(lambda g: g * advantage, policyGradient)
+
+  # Update policy
+  #  We want to do gradient ascent on the log probability.
+  #  The function which we computed the gradient from already
+  #  returns the negative log probability, so using the optimizer
+  #  for gradient descent ends up doing gradient ascent.
+  policyOptimizer.update(policyGradient)
+
+  def valueLoss(valueNetwork, lastObservation, currentObservation, reward):
+    lastValue = valueNetwork(lastObservation)
+    # jax.debug.print(f'Last value: {lastValue}')
+    value = valueNetwork(currentObservation)
+    # jax.debug.print(f'Value: {value}')
+    target = reward + gamma * jax.lax.stop_gradient(value)
+    return jnp.mean((lastValue - target)**2) / 2.0
+
+  # Take the gradient of and update the value network
+  loss, valueGradient = nnx.value_and_grad(valueLoss)(valueNetwork, lastObservation, currentObservation, reward)
+  valueOptimizer.update(valueGradient)
+  return loss
+
+def loadPolicyNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0)))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
+
+def loadValueNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: ValueNetwork(rngs=nnx.Rngs(0)))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
+
 class TrainingUtilClass:
-  def __init__(self, summaryWriter):
+  def __init__(self, summaryWriter, policyNetworkLearningRate, valueNetworkLearningRate, checkpointDirectoryName, restoreFromCheckpoint):
     self.summaryWriter = summaryWriter
     # Initialize RNG
     # TODO: Find some way to seed the RNG before creating the models
     self.rngs = nnx.Rngs(0, myAdditionalStream=1)
 
-    # Create the model
-    self.policyNetwork = createNewPolicyNetwork(self.rngs)
-    self.valueNetwork = createNewValueNetwork(self.rngs)
+    # Save the checkpoint path
+    self.checkpointBasePath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / checkpointDirectoryName
+
+    # Initialize the checkpointer
+    self.checkpointer = ocp.StandardCheckpointer()
+
+    if restoreFromCheckpoint:
+      self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.getCheckpointPath()/'policy')
+      self.valueNetwork = loadValueNetworkFromCheckpoint(self.getCheckpointPath()/'value')
+      self.loadPolicyOptimizerCheckpoint()
+      self.loadValueOptimizerCheckpoint()
+    else:
+      # Create the model
+      self.policyNetwork = createNewPolicyNetwork(self.rngs)
+      self.valueNetwork = createNewValueNetwork(self.rngs)
+
+      # Create the policy optimizer
+      # policyNetworkLearningRate = optax.linear_schedule(init_value=policyNetworkLearningRate, end_value=policyNetworkLearningRate/10, transition_steps=1000, transition_begin=7000)
+      tx = optax.adam(learning_rate=policyNetworkLearningRate)
+      self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
+
+      # Create the value optimizer
+      tx = optax.adam(learning_rate=valueNetworkLearningRate)
+      self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
 
     # Compile the policy network inference functions
     self.getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
     self.getProbabilityAndActionTuple = nnx.jit(getProbabilityAndActionTuple)
+    self.jittedUpdate = nnx.jit(updateAndReturnLoss)
 
   def setSeed(self, seed):
     self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
 
+  def getCheckpointPath(self):
+    return self.checkpointBasePath
+
+  def saveCheckpoint(self):
+    checkpointPath = self.getCheckpointPath()
+    policyNetworkPath = checkpointPath / 'policy'
+    _, policyNetworkState = nnx.split(self.policyNetwork)
+    self.checkpointer.save(policyNetworkPath, policyNetworkState, force=True)
+
+    valueNetworkPath = checkpointPath / 'value'
+    _, valueNetworkState = nnx.split(self.valueNetwork)
+    self.checkpointer.save(valueNetworkPath, valueNetworkState, force=True)
+
+    policyOptimizerStatePath = checkpointPath / 'policy_optimizer'
+    self.checkpointer.save(policyOptimizerStatePath, nnx.state(self.policyNetworkOptimizer), force=True)
+
+    valueOptimizerStatePath = checkpointPath / 'value_optimizer'
+    self.checkpointer.save(valueOptimizerStatePath, nnx.state(self.valueNetworkOptimizer), force=True)
+    print(f'Saved checkpoints at {checkpointPath}')
+
+  def loadPolicyOptimizerCheckpoint(self):
+    tx = optax.adam(learning_rate=1.0)
+    self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.policyNetworkOptimizer))
+    checkpointer = ocp.StandardCheckpointer()
+    optimizerState = checkpointer.restore(self.getCheckpointPath()/'policy_optimizer', abstractOptStateTree)
+    nnx.update(self.policyNetworkOptimizer, optimizerState)
+
+  def loadValueOptimizerCheckpoint(self):
+    tx = optax.adam(learning_rate=1.0)
+    self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
+    abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.valueNetworkOptimizer))
+    checkpointer = ocp.StandardCheckpointer()
+    optimizerState = checkpointer.restore(self.getCheckpointPath()/'value_optimizer', abstractOptStateTree)
+    nnx.update(self.valueNetworkOptimizer, optimizerState)
+
   def getActionTupleAndKeyUsed(self, observation, actions):
-    # Pad actions up to the nearest power of 2
-    newActionsLength = int(2**math.ceil(math.log2(len(actions))))
-    originalSize = len(actions)
-    padSize = newActionsLength - len(actions)
-    actions = jnp.asarray(actions, dtype=jnp.int32)
-    paddedActions = jnp.pad(actions, ((0,padSize),(0,0)), mode='constant', constant_values=0)
-    validActionMask = jnp.concat([jnp.ones(originalSize), jnp.zeros(padSize)], axis=0)
-    validActionMask = validActionMask[:, None]
+    paddedActions, validActionMask = padActionsAndGetMask(actions)
     observation = createObservationForModel(jnp.asarray(observation))
     rngKey = self.rngs.myAdditionalStream()
     (logProbability, actionTuple) = self.getProbabilityAndActionTuple(rngKey, self.policyNetwork, observation, paddedActions, validActionMask)
     return actionTuple, rngKey
 
-  def initializePolicyOptimizer(self, learningRate):
-    # learningRate = optax.linear_schedule(init_value=learningRate, end_value=learningRate/10, transition_steps=1000, transition_begin=7000)
-    tx = optax.adam(learning_rate=learningRate)
-    self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
+  def train(self, lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, gamma):
+    # Convert observations to a format ready for the networks
+    lastObservation = createObservationForModel(jnp.asarray(lastObservation))
+    currentObservation = createObservationForModel(jnp.asarray(currentObservation))
 
-  def initializeValueOptimizer(self, learningRate):
-    tx = optax.adam(learning_rate=learningRate)
-    self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
+    # Take the gradient of the policy, at the last observation
+    paddedActions, validActionMask = padActionsAndGetMask(lastValidActionsArray)
 
-  def train(self, rewardsForTrajectories, observationsForTrajectories, rngKeysForTrajectories, validActionsArraysForTrajectories, gamma, episodeIndex):
-    # TODO
-    pass
+    # Call jitted update function
+    loss = self.jittedUpdate(self.policyNetwork, self.valueNetwork, self.policyNetworkOptimizer, self.valueNetworkOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, gamma)
+
+    return loss
