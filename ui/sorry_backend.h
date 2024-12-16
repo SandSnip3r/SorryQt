@@ -172,7 +172,7 @@ signals:
   void winnerChanged();
 
 private:
-  bool hiddenHand_{false};
+  bool hiddenHand_{true};
   static constexpr bool kHumanIsMctsAssisted{false};
   std::map<sorry::engine::PlayerColor, PlayerType::PlayerTypeEnum> playerTypes_;
   SorryMcts mcts_{2};

@@ -1,6 +1,7 @@
 #include "actionMap.hpp"
 #include "common.hpp"
-#include "trainingUtil.hpp"
+#include "actorCriticTrainingUtil.hpp"
+// #include "reinforceWithBaselineTrainingUtil.hpp"
 #include "trajectory.hpp"
 
 #include <sorry/agent/random/randomAgent.hpp>
@@ -26,6 +27,9 @@
 namespace py = pybind11;
 using namespace std;
 
+// =================================================================================================
+
+// Times construction to destruction and logs the time to TensorBoard.
 class ScopedTimer {
 public:
   ScopedTimer(py::object summaryWriter, std::string_view name, int episodeIndex) : summaryWriter_(summaryWriter), name_(name), episodeIndex_(episodeIndex) {
@@ -42,39 +46,6 @@ private:
   const int episodeIndex_;
   std::chrono::time_point<std::chrono::high_resolution_clock> startTime_;
 };
-
-// =================================================================================================
-
-// How long does it take an agent acting randomly to finish a game of Sorry?
-void simulateRandomGames() {
-  constexpr const int kNumGames = 1'000'000;
-  int totalActionCount = 0;
-  constexpr int kSeed = 123;
-  mt19937 randomEngine(kSeed);
-  sorry::agent::RandomAgent randomAgent;
-  randomAgent.seed(kSeed);
-  sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
-  for (int i=0; i<kNumGames; ++i) {
-    int thisGameActionCount = 0;
-    sorry.reset(randomEngine);
-    while (!sorry.gameDone()) {
-      randomAgent.run(sorry);
-      const sorry::engine::Action action = randomAgent.pickBestAction();
-      sorry.doAction(action, randomEngine);
-      ++thisGameActionCount;
-    }
-    totalActionCount += thisGameActionCount;
-    if (i%10000 == 0) {
-      cout << i << ".." << flush;
-      // cout << "Game " << i << ". Average actions per game: " << static_cast<double>(totalActionCount) / (i+1) << endl;
-    }
-    if (i%100000 == 0) {
-      cout << endl;
-    }
-  }
-  double avg = static_cast<double>(totalActionCount) / kNumGames;
-  cout << endl << "Average actions per game: " << avg << endl;
-}
 
 // =================================================================================================
 
@@ -122,45 +93,68 @@ private:
   std::array<int,4> opponentLastPiecePositions_;
 };
 
+// =================================================================================================
+
 struct OpponentStats {
 public:
-  void pushGameResult(float reward) {
-    if (rewards.size() >= kBufferSize) {
-      totalReward -= rewards.front();
-      rewards.pop_front();
+  OpponentStats(int maxBufferSize) : maxBufferSize(maxBufferSize) {}
+
+  void pushGameResult(float result) {
+    if (results.size() >= maxBufferSize) {
+      resultSum -= results.front();
+      results.pop_front();
     }
-    rewards.push_back(reward);
-    totalReward += reward;
+    results.push_back(result);
+    resultSum += result;
   }
 
   int gameCount() const {
-    return rewards.size();
+    return results.size();
   }
 
-  float averageReward() const {
-    if (rewards.empty()) {
+  float averageResult() const {
+    if (results.empty()) {
       return 0.0;
     }
-    return totalReward / rewards.size();
+    return resultSum / results.size();
   }
 private:
-  static constexpr int kBufferSize = 101;
-  std::deque<float> rewards;
-  float totalReward{0.0};
+  const int maxBufferSize{1};
+  std::deque<float> results;
+  float resultSum{0.0};
 };
+
+// =================================================================================================
+
+std::pair<float, float> calculateMeanAndStdDev(const std::vector<float> &data) {
+  float mean = std::accumulate(data.begin(), data.end(), 0.0f) / data.size();
+
+  // Use std::transform to compute squared differences
+  float variance = std::transform_reduce(
+      data.begin(), data.end(), 0.0f, std::plus<>(),
+      [mean](float value) { return (value - mean) * (value - mean); }
+  ) / data.size();
+
+  return {mean, std::sqrt(variance)};
+}
+
+char colorToChar(sorry::engine::PlayerColor color) {
+  return sorry::engine::toString(color)[0];
+}
+
+// =================================================================================================
 
 class Trainer {
 public:
   void trainReinforce() {
     // Load the Python module
     using namespace pybind11::literals;
-    py::module jaxModule = py::module::import("jaxModule");
+    py::module jaxModule = py::module::import("actor_critic");
     py::module tensorboardX = py::module::import("tensorboardX");
     summaryWriter_ = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
 
     // Initialize python module/model
-    // pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_, "latest");
-    pythonTrainingUtil_ = python_wrapper::TrainingUtil(jaxModule, summaryWriter_);
+    pythonTrainingUtil_ = python_wrapper::ActorCriticTrainingUtil(jaxModule, summaryWriter_, kRestoreFromCheckpoint);
 
     // Set up a single random agent as the first opponent for our agent
     opponentPool_.push_back(new sorry::agent::RandomAgent());
@@ -178,40 +172,36 @@ public:
     // Start training
     constexpr int kEpisodeCount = 1'000'000;
     int episodeIndex = 0;
-    constexpr int kBatchSize = 1;
     while (episodeIndex<kEpisodeCount) {
-      std::vector<Trajectory> batchTrajectories(kBatchSize);
-      for (int i=0; i<kBatchSize; ++i) {
-        if (episodeIndex >= kEpisodeCount) {
-          // TODO: If this ends on an incomplete batch, the model should not be trained.
-          break;
-        }
-        collectTrajectory(episodeIndex, batchTrajectories[i]);
-        ++episodeIndex;
-      }
+      runEpisode(episodeIndex);
+
       if (shouldAddSelfToPool()) {
-        std::cout << "Going to add self to pool" << std::endl;
+        cout << "Adding self to pool" << endl;
         opponentPool_.push_back(new sorry::agent::ReinforceAgent(pythonTrainingUtil_->getPythonTrainingUtilInstance()));
         opponentPool_.back()->seed(kSeed);
         resetOpponentStats();
       }
-      // A batch of trajectories has been generated, now train the model
-      {
-        ScopedTimer timer(summaryWriter_, "training_util_train", episodeIndex);
-        pythonTrainingUtil_->train(std::move(batchTrajectories), episodeIndex);
-      }
+      ++episodeIndex;
     }
   }
 private:
+<<<<<<< HEAD
   static constexpr bool kAddSelfToPool{false};
   static constexpr int kPrintEpisodeCompletionFrequency{10};
   static constexpr int kSaveCheckpointFrequency{1000};
+=======
+  static constexpr bool kRestoreFromCheckpoint{false};
+  static constexpr bool kAddSelfToPool{true};
+  static constexpr int kPrintEpisodeCompletionFrequency{20};
+  static constexpr int kSaveCheckpointFrequency{1000};
+  static constexpr int kMinGamesPerOpponent{250};
+>>>>>>> actor-critic
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
   static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
   std::mt19937 randomEngine_;
   std::vector<sorry::agent::BaseAgent*> opponentPool_;
-  std::optional<python_wrapper::TrainingUtil> pythonTrainingUtil_;
+  std::optional<python_wrapper::ActorCriticTrainingUtil> pythonTrainingUtil_;
   std::vector<OpponentStats> opponentStats_;
 
   bool shouldAddSelfToPool() const {
@@ -219,18 +209,12 @@ private:
       //  For now, we are just focused on doing as well as possible against the initial opponent.
       return false;
     }
-    constexpr int kMinGamesPerOpponent = 101;
-    constexpr float kMinAverageReward = 0.8; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
+    constexpr float kMinAverageResult = 0.4;
     // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
-    // The minimum average reward should be at least `kMinAverageReward`.
-    std::cout << "Stats: Game counts: [ ";
+    // The minimum average result should be at least `kMinAverageResult`.
+    std::cout << "Stats: [ ";
     for (const OpponentStats &opponentStats : opponentStats_) {
-      std::cout << opponentStats.gameCount() << ", ";
-    }
-    std::cout << "]" << std::endl;
-    std::cout << "    Average reward: [ ";
-    for (const OpponentStats &opponentStats : opponentStats_) {
-      std::cout << opponentStats.averageReward() << ", ";
+      std::cout << "{" << opponentStats.gameCount() << ", " << opponentStats.averageResult() << "}, ";
     }
     std::cout << "]" << std::endl;
     for (const OpponentStats &opponentStats : opponentStats_) {
@@ -239,36 +223,81 @@ private:
       }
     }
     auto minElementIt = std::min_element(opponentStats_.begin(), opponentStats_.end(), [](const OpponentStats &a, const OpponentStats &b) {
-      return a.averageReward() < b.averageReward();
+      return a.averageResult() < b.averageResult();
     });
-    return minElementIt->averageReward() >= kMinAverageReward;
+    return minElementIt->averageResult() >= kMinAverageResult;
   }
 
   void resetOpponentStats() {
     opponentStats_.clear();
-    opponentStats_.resize(opponentPool_.size());
+    for (int i=0; i<opponentPool_.size(); ++i) {
+      opponentStats_.emplace_back(kMinGamesPerOpponent);
+    }
   }
 
-  void collectTrajectory(int episodeIndex, Trajectory &trajectory) {
+  // Throws if action is invalid.
+  void checkIfActionIsValid(const sorry::engine::Sorry &sorry, const std::vector<sorry::engine::Action> &validActions, const sorry::engine::Action &action) {
+    if (std::find(validActions.begin(), validActions.end(), action) == validActions.end()) {
+      std::cout << "Current state: " << sorry.toString() << std::endl;
+      std::cout << "Valid actions were:" << std::endl;
+      for (const sorry::engine::Action &a : validActions) {
+        std::cout << "  " << a.toString() << std::endl;
+      }
+      throw std::runtime_error("Invalid action after mask "+action.toString());
+    }
+  }
+
+  void runEpisode(int episodeIndex) {
     ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
-    // Construct Sorry game
-    // TODO: This construction should be moved outside the loop
-    // With this initialization, we always go first, because our color is the first in the list.
+
+    // Reset the game environment.
     sorry::engine::Sorry sorry({ourColor_, opponentColor_});
     sorry.reset(randomEngine_);
-    trajectory.reset();
-    // Randomly choose one opponent from the pool
+
+    // Randomly choose one opponent from the pool.
     std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
     size_t opponentIndex = dist(randomEngine_);
     sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
-    RewardTracker rewardTracker(sorry, ourColor_, opponentColor_);
 
-    // Generate a full trajectory according to the policy
+    // Use a separate structure for determining rewards.
+    RewardTracker rewardTracker(sorry, ourColor_, opponentColor_);
+    float episodeTotalReward = 0.0;
+
+    // Set up some data structures used during the episode.
+    std::vector<int> currentObservation = common::makeObservation(sorry);
+    std::vector<int> lastObservation;
+    std::vector<std::vector<int>> lastValidActionsArray;
+    py::object rngKey;
+    std::vector<float> valueFunctionLosses;
+
+    // Define the training function.
+    auto train = [&](){
+      // Current observation is `sorry`.
+      // Previous observation is `lastObservation`.
+      // Calculate the reward for the action we took.
+      float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
+      episodeTotalReward += reward;
+      // We need to update the weights of the:
+      //  1. Policy network, which requires:
+      //    - The gradient of the log probability of the action we took
+      //      - Which can come from the state and the rngkey used when selecting our action
+      //    - The advantage of the action we took
+      //      - advantage = reward + gamma * value(currentObservation) - value(lastObservation)
+      //  2. Value network, which requires:
+      //    - The state before the action was taken
+      //    - The state after the action was taken
+      //    - The reward we received
+      float valueFunctionLoss = pythonTrainingUtil_->train(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray);
+      valueFunctionLosses.push_back(valueFunctionLoss);
+    };
+
+    // Run an entire episode.
+    bool weTookAnActionBefore = false;
+    int stepIndex=0;
     while (!sorry.gameDone()) {
-      // Who's turn is it?
       const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
       if (playerTurn == opponentColor_) {
-        // It is the opponent's turn.
+        // Do opponent's turn
         sorry::engine::Action action;
         if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent) != nullptr) {
           // Reinforce Agent was trained to play as green. Rotate the board so that they play from our position.
@@ -279,64 +308,66 @@ private:
           // Put board back.
           sorry.rotateBoard(ourColor_, opponentColor_);
         } else {
+          // No need to rotate the board for an agent which is not a ReinforceAgent.
           opponent->run(sorry);
           action = opponent->pickBestAction();
         }
         sorry.doAction(action, randomEngine_);
       } else {
-        // It is our turn.
-        std::vector<int> observation = common::makeObservation(sorry);
-
-        if (trajectory.size() > 0) {
-          // Calculate the reward for the previous action we took.
-          float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
-          trajectory.setLastReward(reward);
+        // Our turn
+        currentObservation = common::makeObservation(sorry);
+        if (weTookAnActionBefore) {
+          train();
         }
-
         // Take an action according to the policy, masked by the valid actions.
-        const std::vector<sorry::engine::Action> actions = sorry.getActions();
-        std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(actions);
+        const std::vector<sorry::engine::Action> validActions = sorry.getActions();
+        const std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(validActions);
         sorry::engine::Action action;
-        py::object rngKey;
-        std::tie(action, rngKey) = pythonTrainingUtil_->getActionAndKeyUsed(observation, sorry.getPlayerTurn(), episodeIndex, validActionsArray);
+        std::tie(action, rngKey) = pythonTrainingUtil_->getActionAndKeyUsed(currentObservation, playerTurn, episodeIndex, validActionsArray);
 
         // Do a quick check to make sure the model's action is valid.
-        if (std::find(actions.begin(), actions.end(), action) == actions.end()) {
-          std::cout << "Current state: " << sorry.toString() << std::endl;
-          std::cout << "Valid actions were:" << std::endl;
-          for (const sorry::engine::Action &a : actions) {
-            std::cout << "  " << a.toString() << std::endl;
-          }
-          throw std::runtime_error("Invalid action after mask "+action.toString());
-        }
+        checkIfActionIsValid(sorry, validActions, action);
 
-        // Take action in game.
         sorry.doAction(action, randomEngine_);
-
-        // Save the trajectory for a later training step.
-        trajectory.pushStep(/*reward=*/0.0, std::move(observation), rngKey, std::move(validActionsArray));
+        weTookAnActionBefore = true;
+        // Save the current observation as the last
+        lastObservation = currentObservation;
+        lastValidActionsArray = validActionsArray;
       }
+      ++stepIndex;
     }
 
+    // Game is done.
+    train();
+
+    // Log reward.
+    summaryWriter_.attr("add_scalar")("total_reward_vs_opponent_"+std::to_string(opponentIndex), episodeTotalReward, episodeIndex);
+
+    // Log the game result.
     float gameResult;
-    // Who won?
     sorry::engine::PlayerColor winner = sorry.getWinner();
     if (winner == ourColor_) {
       gameResult = 1.0;
     } else {
       gameResult = -1.0;
     }
+    summaryWriter_.attr("add_scalar")("result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
+
+    // Track the our win rate against the opponent.
     opponentStats_.at(opponentIndex).pushGameResult(gameResult);
-    const float finalReward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
-    trajectory.setLastReward(finalReward);
-    summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), trajectory.getCumulativeReward(), episodeIndex);
-    summaryWriter_.attr("add_scalar")("episode/result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
+
+    // Log stats about the losses.
+    auto [valueLossMean, valueLossStdDev] = calculateMeanAndStdDev(valueFunctionLosses);
+    summaryWriter_.attr("add_scalar")("value_loss/mean", valueLossMean, episodeIndex);
+    summaryWriter_.attr("add_scalar")("value_loss/std_dev", valueLossStdDev, episodeIndex);
+
+    // Log stats about our opponents.
     if (kAddSelfToPool) {
-      summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
+      summaryWriter_.attr("add_scalar")("opponent_count", opponentPool_.size(), episodeIndex);
     }
 
     if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
-      cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
+      cout << episodeIndex+1 << " episodes completed" << endl;
     }
     if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
       pythonTrainingUtil_->saveCheckpoint();
@@ -354,43 +385,6 @@ private:
     return colors[dist(randomEngine_)];
   };
 };
-
-// =================================================================================================
-
-void loadModel() {
-  py::module jaxModule = py::module::import("jaxModule");
-  py::object InferenceClass = jaxModule.attr("InferenceClass");
-  py::object inferenceInstance = InferenceClass(ActionMap::getInstance().totalActionCount());
-
-  // Seed all random engines
-  constexpr int kSeed = 0x5EED;
-  std::mt19937 randomEngine{kSeed};
-  inferenceInstance.attr("setSeed")(kSeed);
-
-  sorry::engine::Sorry sorry({sorry::engine::PlayerColor::kGreen});
-  sorry.reset(randomEngine);
-  while (!sorry.gameDone()) {
-    // Create the observation
-    std::vector<int> observation = common::makeObservation(sorry);
-
-    // Create the action mask for valid actions as a numpy array
-    py::array_t<float> actionMask(ActionMap::getInstance().totalActionCount());
-    // Initialize all values to negative infinity
-    actionMask.attr("fill")(-std::numeric_limits<float>::infinity());
-    const std::vector<sorry::engine::Action> validActions = sorry.getActions();
-    for (const sorry::engine::Action &action : validActions) {
-      const int actionIndex = ActionMap::getInstance().actionToIndex(action);
-      actionMask.mutable_at(actionIndex) = 0.0;
-    }
-
-    py::object index = inferenceInstance.attr("getActionIndexForState")(observation, actionMask);
-    int actionIndex = index.cast<int>();
-    const sorry::engine::Action action = ActionMap::getInstance().indexToActionForPlayer(actionIndex, sorry.getPlayerTurn());
-    cout << sorry.toString() << endl;
-    cout << "Want to take action " << action.toString() << endl;
-    sorry.doAction(action, randomEngine);
-  }
-}
 
 // =================================================================================================
 
