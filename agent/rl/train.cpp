@@ -97,29 +97,31 @@ private:
 
 struct OpponentStats {
 public:
-  void pushGameResult(float reward) {
-    if (rewards.size() >= kBufferSize) {
-      totalReward -= rewards.front();
-      rewards.pop_front();
+  OpponentStats(int maxBufferSize) : maxBufferSize(maxBufferSize) {}
+
+  void pushGameResult(float result) {
+    if (results.size() >= maxBufferSize) {
+      resultSum -= results.front();
+      results.pop_front();
     }
-    rewards.push_back(reward);
-    totalReward += reward;
+    results.push_back(result);
+    resultSum += result;
   }
 
   int gameCount() const {
-    return rewards.size();
+    return results.size();
   }
 
-  float averageReward() const {
-    if (rewards.empty()) {
+  float averageResult() const {
+    if (results.empty()) {
       return 0.0;
     }
-    return totalReward / rewards.size();
+    return resultSum / results.size();
   }
 private:
-  static constexpr int kBufferSize = 101;
-  std::deque<float> rewards;
-  float totalReward{0.0};
+  const int maxBufferSize{1};
+  std::deque<float> results;
+  float resultSum{0.0};
 };
 
 // =================================================================================================
@@ -172,14 +174,22 @@ public:
     int episodeIndex = 0;
     while (episodeIndex<kEpisodeCount) {
       runEpisode(episodeIndex);
+
+      if (shouldAddSelfToPool()) {
+        cout << "Adding self to pool" << endl;
+        opponentPool_.push_back(new sorry::agent::ReinforceAgent(pythonTrainingUtil_->getPythonTrainingUtilInstance()));
+        opponentPool_.back()->seed(kSeed);
+        resetOpponentStats();
+      }
       ++episodeIndex;
     }
   }
 private:
   static constexpr bool kRestoreFromCheckpoint{false};
-  static constexpr bool kAddSelfToPool{false};
+  static constexpr bool kAddSelfToPool{true};
   static constexpr int kPrintEpisodeCompletionFrequency{20};
   static constexpr int kSaveCheckpointFrequency{1000};
+  static constexpr int kMinGamesPerOpponent{250};
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
   static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
@@ -193,18 +203,12 @@ private:
       //  For now, we are just focused on doing as well as possible against the initial opponent.
       return false;
     }
-    constexpr int kMinGamesPerOpponent = 101;
-    constexpr float kMinAverageReward = 0.8; // (Reward + 1) / 2 is win rate. Average reward 0.5 is 75% win rate.
+    constexpr float kMinAverageResult = 0.4;
     // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
-    // The minimum average reward should be at least `kMinAverageReward`.
-    std::cout << "Stats: Game counts: [ ";
+    // The minimum average result should be at least `kMinAverageResult`.
+    std::cout << "Stats: [ ";
     for (const OpponentStats &opponentStats : opponentStats_) {
-      std::cout << opponentStats.gameCount() << ", ";
-    }
-    std::cout << "]" << std::endl;
-    std::cout << "    Average reward: [ ";
-    for (const OpponentStats &opponentStats : opponentStats_) {
-      std::cout << opponentStats.averageReward() << ", ";
+      std::cout << "{" << opponentStats.gameCount() << ", " << opponentStats.averageResult() << "}, ";
     }
     std::cout << "]" << std::endl;
     for (const OpponentStats &opponentStats : opponentStats_) {
@@ -213,14 +217,16 @@ private:
       }
     }
     auto minElementIt = std::min_element(opponentStats_.begin(), opponentStats_.end(), [](const OpponentStats &a, const OpponentStats &b) {
-      return a.averageReward() < b.averageReward();
+      return a.averageResult() < b.averageResult();
     });
-    return minElementIt->averageReward() >= kMinAverageReward;
+    return minElementIt->averageResult() >= kMinAverageResult;
   }
 
   void resetOpponentStats() {
     opponentStats_.clear();
-    opponentStats_.resize(opponentPool_.size());
+    for (int i=0; i<opponentPool_.size(); ++i) {
+      opponentStats_.emplace_back(kMinGamesPerOpponent);
+    }
   }
 
   // Throws if action is invalid.
@@ -326,11 +332,10 @@ private:
     }
 
     // Game is done.
-    cout << colorToChar(sorry.getWinner()) << ' ' << flush;
     train();
 
     // Log reward.
-    summaryWriter_.attr("add_scalar")("total_reward", episodeTotalReward, episodeIndex);
+    summaryWriter_.attr("add_scalar")("total_reward_vs_opponent_"+std::to_string(opponentIndex), episodeTotalReward, episodeIndex);
 
     // Log the game result.
     float gameResult;
@@ -340,113 +345,28 @@ private:
     } else {
       gameResult = -1.0;
     }
-    summaryWriter_.attr("add_scalar")("result", gameResult, episodeIndex);
+    summaryWriter_.attr("add_scalar")("result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
+
+    // Track the our win rate against the opponent.
+    opponentStats_.at(opponentIndex).pushGameResult(gameResult);
 
     // Log stats about the losses.
     auto [valueLossMean, valueLossStdDev] = calculateMeanAndStdDev(valueFunctionLosses);
     summaryWriter_.attr("add_scalar")("value_loss/mean", valueLossMean, episodeIndex);
     summaryWriter_.attr("add_scalar")("value_loss/std_dev", valueLossStdDev, episodeIndex);
 
+    // Log stats about our opponents.
+    if (kAddSelfToPool) {
+      summaryWriter_.attr("add_scalar")("opponent_count", opponentPool_.size(), episodeIndex);
+    }
+
     if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
-      cout << endl << episodeIndex+1 << " episodes completed" << endl;
+      cout << episodeIndex+1 << " episodes completed" << endl;
     }
     if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
       pythonTrainingUtil_->saveCheckpoint();
     }
   }
-
-  // void runEpisode(int episodeIndex) {
-  //   ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
-  //   // Construct Sorry game
-  //   // TODO: This construction should be moved outside the loop
-  //   // With this initialization, we always go first, because our color is the first in the list.
-  //   sorry::engine::Sorry sorry({ourColor_, opponentColor_});
-  //   sorry.reset(randomEngine_);
-  //   // Randomly choose one opponent from the pool
-  //   std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
-  //   size_t opponentIndex = dist(randomEngine_);
-  //   sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
-  //   RewardTracker rewardTracker(sorry, ourColor_, opponentColor_);
-  //   bool tookAnAction = false;
-  //   float episodeTotalReward = 0.0;
-
-  //   py::object logProbabilityGradient;
-  //   std::vector<int> lastObservation;
-
-  //   while (!sorry.gameDone()) {
-  //     // Who's turn is it?
-  //     const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
-  //     if (playerTurn == opponentColor_) {
-  //       // It is the opponent's turn.
-  //       sorry::engine::Action action;
-  //       if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent) != nullptr) {
-  //         // Reinforce Agent was trained to play as green. Rotate the board so that they play from our position.
-  //         sorry.rotateBoard(opponentColor_, ourColor_);
-  //         opponent->run(sorry);
-  //         action = opponent->pickBestAction();
-  //         action.rotateBoard(ourColor_, opponentColor_);
-  //         // Put board back.
-  //         sorry.rotateBoard(ourColor_, opponentColor_);
-  //       } else {
-  //         // No need to rotate the board for an agent which is not a ReinforceAgent.
-  //         opponent->run(sorry);
-  //         action = opponent->pickBestAction();
-  //       }
-  //       sorry.doAction(action, randomEngine_);
-  //     } else {
-  //       // It is our turn.
-  //       std::vector<int> observation = common::makeObservation(sorry);
-
-  //       // It is our turn.
-  //       if (tookAnAction) {
-  //         // Calculate the reward for the previous action we took.
-  //         float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
-  //         episodeTotalReward += reward;
-
-  //         // Train
-  //         //  Save the gradient from the last action we took (log prob)
-  //         //  Use the current and previous observations to calculate the advantage
-  //         pythonTrainingUtil_->train(logProbabilityGradient, lastObservation, observation);
-  //       }
-
-  //       // Take an action according to the policy, masked by the valid actions.
-  //       const std::vector<sorry::engine::Action> actions = sorry.getActions();
-  //       const std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(actions);
-  //       const sorry::engine::Action action = pythonTrainingUtil_->getAction(observation, sorry.getPlayerTurn(), episodeIndex, validActionsArray);
-
-  //       // Do a quick check to make sure the model's action is valid.
-  //       checkIfActionIsValid(sorry, actions, action);
-
-  //       // Take action in game.
-  //       sorry.doAction(action, randomEngine_);
-  //       tookAnAction = true;
-  //     }
-  //   }
-
-  //   float gameResult;
-  //   // Who won?
-  //   sorry::engine::PlayerColor winner = sorry.getWinner();
-  //   if (winner == ourColor_) {
-  //     gameResult = 1.0;
-  //   } else {
-  //     gameResult = -1.0;
-  //   }
-  //   opponentStats_.at(opponentIndex).pushGameResult(gameResult);
-  //   const float finalReward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
-  //   // TODO: Train
-  //   summaryWriter_.attr("add_scalar")("episode/reward_vs_opponent_"+std::to_string(opponentIndex), episodeTotalReward, episodeIndex);
-  //   summaryWriter_.attr("add_scalar")("episode/result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
-  //   if (kAddSelfToPool) {
-  //     summaryWriter_.attr("add_scalar")("opponent/count", opponentPool_.size(), episodeIndex);
-  //   }
-
-  //   if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
-  //     cout << "Episode " << episodeIndex << " complete. " << sorry::engine::toString(sorry.getWinner()) << " won" << endl;
-  //   }
-  //   if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
-  //     // pythonTrainingUtil_->saveCheckpoint();
-  //   }
-  // }
 
   sorry::engine::PlayerColor pickRandomColor() {
     const std::array<sorry::engine::PlayerColor, 4> colors = {

@@ -46,7 +46,7 @@ void SorryBackend::initializeGame() {
   // sorryState_ = sorry::engine::Sorry({sorry::engine::PlayerColor::kGreen, sorry::engine::PlayerColor::kRed, sorry::engine::PlayerColor::kBlue, sorry::engine::PlayerColor::kYellow});
   sorryState_.reset(eng_);
 
-  rlAgent_ = new sorry::agent::ReinforceAgent();
+  rlAgent_ = new sorry::agent::ReinforceAgent("actor_critic_7_opponents");
   rlAgent_->seed(randomSeed_);
 
   playerTypes_[sorry::engine::PlayerColor::kGreen] = PlayerType::Rl;

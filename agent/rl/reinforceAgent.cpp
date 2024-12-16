@@ -12,16 +12,18 @@ using namespace pybind11::literals;
 
 namespace sorry::agent {
 
-ReinforceAgent::ReinforceAgent() {
+ReinforceAgent::ReinforceAgent(std::string_view checkpointName) {
+  using namespace pybind11::literals;
   initializeJaxModule();
   pybind11::object InferenceClass = jaxModule_.attr("InferenceClass");
-  inferenceInstance_ = InferenceClass();
+  inferenceInstance_ = InferenceClass("checkpointName"_a=checkpointName);
 }
 
 ReinforceAgent::ReinforceAgent(pybind11::object trainingUtilInstance) {
+  using namespace pybind11::literals;
   initializeJaxModule();
   pybind11::object InferenceClass = jaxModule_.attr("InferenceClass");
-  inferenceInstance_ = InferenceClass(trainingUtilInstance);
+  inferenceInstance_ = InferenceClass("trainingUtil"_a=trainingUtilInstance);
 }
 
 void ReinforceAgent::initializeJaxModule() {
@@ -29,7 +31,7 @@ void ReinforceAgent::initializeJaxModule() {
   pybind11::module sys = pybind11::module::import("sys");
   // Append the directory containing my_jax.py to sys.path, SOURCE_DIR is set from CMake.
   sys.attr("path").cast<pybind11::list>().append(std::string(SOURCE_DIR));
-  jaxModule_ = pybind11::module::import("reinforce_with_baseline");
+  jaxModule_ = pybind11::module::import("actor_critic");
 }
 
 void ReinforceAgent::seed(int seed) {

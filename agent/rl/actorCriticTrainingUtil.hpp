@@ -24,10 +24,14 @@ public:
   // Returns the value function loss.
   float train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, pybind11::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray);
   void saveCheckpoint();
+
+  pybind11::object getPythonTrainingUtilInstance() const {
+    return trainingUtilInstance_;
+  }
 private:
   static constexpr float kGamma{0.99};
-  static constexpr float kPolicyNetworkLearningRate{0.0003};
-  static constexpr float kValueNetworkLearningRate{0.0003};
+  static constexpr float kPolicyNetworkLearningRate{0.00003};
+  static constexpr float kValueNetworkLearningRate{0.0001};
   static constexpr std::string_view kCheckpointDirectoryName{"latest"};
   pybind11::module jaxModule_;
   pybind11::object summaryWriter_;

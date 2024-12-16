@@ -8,12 +8,13 @@
 #include <pybind11/pybind11.h>
 
 #include <optional>
+#include <string_view>
 
 namespace sorry::agent {
 
 class __attribute__ ((visibility("hidden"))) ReinforceAgent : public sorry::agent::BaseAgent {
 public:
-  ReinforceAgent();
+  ReinforceAgent(std::string_view checkpointName);
   ReinforceAgent(pybind11::object trainingUtilInstance);
   void seed(int seed) override;
 

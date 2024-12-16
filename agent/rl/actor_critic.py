@@ -10,6 +10,8 @@ import pathlib
 from flax import nnx
 from functools import partial
 
+# ==========================================================================================
+
 class PolicyNetwork(nnx.Module):
   def __init__(self, rngs):
     inFeatureSize = 1+11*5+2*4*67
@@ -48,6 +50,18 @@ class PolicyNetwork(nnx.Module):
     x = self.stateLinear(x)
     return jax.nn.relu(x)
 
+def createNewPolicyNetwork(rngs):
+  return PolicyNetwork(rngs=rngs)
+
+def loadPolicyNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0)))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
+
+# ==========================================================================================
+
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
     inFeatureSize = 1+11*5+2*4*67
@@ -60,11 +74,17 @@ class ValueNetwork(nnx.Module):
     x = self.linear2(x)
     return x.reshape()
 
-def createNewPolicyNetwork(rngs):
-  return PolicyNetwork(rngs=rngs)
-
 def createNewValueNetwork(rngs):
   return ValueNetwork(rngs=rngs)
+
+def loadValueNetworkFromCheckpoint(checkpointPath):
+  abstractModel = nnx.eval_shape(lambda: ValueNetwork(rngs=nnx.Rngs(0)))
+  graphdef, abstractState = nnx.split(abstractModel)
+  checkpointer = ocp.StandardCheckpointer()
+  stateRestored = checkpointer.restore(checkpointPath, abstractState)
+  return nnx.merge(graphdef, stateRestored)
+
+# ==========================================================================================
 
 def getProbabilityAndActionTuple(rngKey, policyNetwork, observation, actions, stillValidActionMask):
   # These are the concrete sizes of the different one-hot vectors for the different parts of the action
@@ -178,6 +198,8 @@ def getProbabilityAndActionTuple(rngKey, policyNetwork, observation, actions, st
   actionTuple = (selectedActionType.astype(int), selectedCard.astype(int), selectedMove1Source.astype(int), selectedMove1Dest.astype(int), selectedMove2Source.astype(int), selectedMove2Dest.astype(int))
   return (-jnp.log(overallProbability), actionTuple)
 
+# ==========================================================================================
+
 @jax.jit
 def createObservationForModel(observation):
   cardCount = 11
@@ -237,19 +259,33 @@ def updateAndReturnLoss(policyNetwork, valueNetwork, policyOptimizer, valueOptim
   valueOptimizer.update(valueGradient)
   return loss
 
-def loadPolicyNetworkFromCheckpoint(checkpointPath):
-  abstractModel = nnx.eval_shape(lambda: PolicyNetwork(rngs=nnx.Rngs(0)))
-  graphdef, abstractState = nnx.split(abstractModel)
-  checkpointer = ocp.StandardCheckpointer()
-  stateRestored = checkpointer.restore(checkpointPath, abstractState)
-  return nnx.merge(graphdef, stateRestored)
+# ==========================================================================================
 
-def loadValueNetworkFromCheckpoint(checkpointPath):
-  abstractModel = nnx.eval_shape(lambda: ValueNetwork(rngs=nnx.Rngs(0)))
-  graphdef, abstractState = nnx.split(abstractModel)
-  checkpointer = ocp.StandardCheckpointer()
-  stateRestored = checkpointer.restore(checkpointPath, abstractState)
-  return nnx.merge(graphdef, stateRestored)
+class InferenceClass:
+  def __init__(self, trainingUtil=None, checkpointName=None):
+    self.rngs = nnx.Rngs(0, myAdditionalStream=1)
+
+    if trainingUtil is not None:
+      # Copy model from the training util
+      self.policyNetwork = nnx.clone(trainingUtil.policyNetwork)
+    elif checkpointName is not None:
+      checkpointPath = pathlib.Path(os.path.join(os.getcwd(), 'checkpoints')) / checkpointName
+      print(f'Loading model from {checkpointPath}')
+      self.policyNetwork = loadPolicyNetworkFromCheckpoint(checkpointPath/'policy')
+
+    # Compile the inference functions
+    self.getStochasticActionTuple = nnx.jit(getProbabilityAndActionTuple)
+
+  def setSeed(self, seed):
+    self.rngs = nnx.Rngs(0, myAdditionalStream=seed)
+
+  def getBestAction(self, observation, actions):
+    paddedActions, validActionMask = padActionsAndGetMask(actions)
+    observation = createObservationForModel(jnp.asarray(observation))
+    _, action = self.getStochasticActionTuple(self.rngs.myAdditionalStream(), self.policyNetwork, observation, paddedActions, validActionMask)
+    return action
+
+# ==========================================================================================
 
 class TrainingUtilClass:
   def __init__(self, summaryWriter, policyNetworkLearningRate, valueNetworkLearningRate, checkpointDirectoryName, restoreFromCheckpoint):
@@ -267,8 +303,8 @@ class TrainingUtilClass:
     if restoreFromCheckpoint:
       self.policyNetwork = loadPolicyNetworkFromCheckpoint(self.getCheckpointPath()/'policy')
       self.valueNetwork = loadValueNetworkFromCheckpoint(self.getCheckpointPath()/'value')
-      self.loadPolicyOptimizerCheckpoint()
-      self.loadValueOptimizerCheckpoint()
+      self.loadPolicyOptimizerCheckpoint(policyNetworkLearningRate)
+      self.loadValueOptimizerCheckpoint(valueNetworkLearningRate)
     else:
       # Create the model
       self.policyNetwork = createNewPolicyNetwork(self.rngs)
@@ -311,16 +347,16 @@ class TrainingUtilClass:
     self.checkpointer.save(valueOptimizerStatePath, nnx.state(self.valueNetworkOptimizer), force=True)
     print(f'Saved checkpoints at {checkpointPath}')
 
-  def loadPolicyOptimizerCheckpoint(self):
-    tx = optax.adam(learning_rate=1.0)
+  def loadPolicyOptimizerCheckpoint(self, learningRate):
+    tx = optax.adam(learning_rate=learningRate)
     self.policyNetworkOptimizer = nnx.Optimizer(self.policyNetwork, tx)
     abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.policyNetworkOptimizer))
     checkpointer = ocp.StandardCheckpointer()
     optimizerState = checkpointer.restore(self.getCheckpointPath()/'policy_optimizer', abstractOptStateTree)
     nnx.update(self.policyNetworkOptimizer, optimizerState)
 
-  def loadValueOptimizerCheckpoint(self):
-    tx = optax.adam(learning_rate=1.0)
+  def loadValueOptimizerCheckpoint(self, learningRate):
+    tx = optax.adam(learning_rate=learningRate)
     self.valueNetworkOptimizer = nnx.Optimizer(self.valueNetwork, tx)
     abstractOptStateTree = jax.tree_util.tree_map(ocp.utils.to_shape_dtype_struct, nnx.state(self.valueNetworkOptimizer))
     checkpointer = ocp.StandardCheckpointer()
