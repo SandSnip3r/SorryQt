@@ -185,17 +185,11 @@ public:
     }
   }
 private:
-<<<<<<< HEAD
-  static constexpr bool kAddSelfToPool{false};
-  static constexpr int kPrintEpisodeCompletionFrequency{10};
-  static constexpr int kSaveCheckpointFrequency{1000};
-=======
   static constexpr bool kRestoreFromCheckpoint{false};
   static constexpr bool kAddSelfToPool{true};
   static constexpr int kPrintEpisodeCompletionFrequency{20};
   static constexpr int kSaveCheckpointFrequency{1000};
   static constexpr int kMinGamesPerOpponent{250};
->>>>>>> actor-critic
   static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
   static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
   py::object summaryWriter_;
