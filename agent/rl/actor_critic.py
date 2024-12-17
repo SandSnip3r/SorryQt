@@ -379,5 +379,4 @@ class TrainingUtilClass:
 
     # Call jitted update function
     loss = self.jittedUpdate(self.policyNetwork, self.valueNetwork, self.policyNetworkOptimizer, self.valueNetworkOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, jnp.array(done), gamma)
-
     return loss

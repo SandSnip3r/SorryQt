@@ -52,20 +52,44 @@ private:
 class RewardTracker {
 public:
   RewardTracker(const sorry::engine::Sorry &sorry, sorry::engine::PlayerColor ourColor, sorry::engine::PlayerColor opponentColor) : ourColor_(ourColor), opponentColor_(opponentColor) {
-    ourLastPiecePositions_ = sorry.getPiecePositionsForPlayer(ourColor_);
-    opponentLastPiecePositions_ = sorry.getPiecePositionsForPlayer(opponentColor_);
+    ourLastSum_ = sumAsGreen(sorry.getPiecePositionsForPlayer(ourColor_), ourColor_);
+    opponentLastSum_ = sumAsGreen(sorry.getPiecePositionsForPlayer(opponentColor_), opponentColor_);
   }
 
-  float calculateRewardForCurrentStateOfGame(const sorry::engine::Sorry &sorry) {
-    auto sumAsGreen = [](const std::array<int,4> &piecePositions, sorry::engine::PlayerColor color) {
-      const int count = sorry::engine::common::rotationCount(color, sorry::engine::PlayerColor::kGreen);
-      int sum = 0;
-      for (int pos : piecePositions) {
-        sum += sorry::engine::common::rotatePosition(pos, count);
-      }
-      return sum;
-    };
+  float calculateRewardForCurrentStateOfGame(const sorry::engine::Sorry &sorry, int stepIndex, int episodeIndex, py::object &summaryWriter) {
+    const float ratio = static_cast<float>(std::min(stepIndex, kStepsToAnnealOver)) / kStepsToAnnealOver;
+    if ((stepIndex+1) % 1000 == 0) {
+      summaryWriter.attr("add_scalar")("reward_ratio", ratio, episodeIndex);
+    }
+    return calculatePerfectReward(sorry) * ratio + calculateDenseReward(sorry) * (1.0 - ratio);
+  }
+private:
+  static constexpr int kStepsToAnnealOver{500'000};
+  sorry::engine::PlayerColor ourColor_;
+  sorry::engine::PlayerColor opponentColor_;
+  int ourLastSum_;
+  int opponentLastSum_;
 
+  int sumAsGreen(const std::array<int,4> &piecePositions, sorry::engine::PlayerColor color) {
+    const int count = sorry::engine::common::rotationCount(color, sorry::engine::PlayerColor::kGreen);
+    int sum = 0;
+    for (int pos : piecePositions) {
+      sum += sorry::engine::common::rotatePosition(pos, count);
+    }
+    return sum;
+  };
+
+  float calculatePerfectReward(const sorry::engine::Sorry &sorry) const {
+    if (!sorry.gameDone()) {
+      return 0.0;
+    }
+    if (sorry.getWinner() == ourColor_) {
+      return 1.0;
+    }
+    return -1.0;
+  }
+
+  float calculateDenseReward(const sorry::engine::Sorry &sorry) {
     float totalReward = 0.0;
     // Sum the positions of all pieces for each player.
     // We will scale each players' progress from [0+0+0+0, 66+66+66+66] to [0.0, 1.0].
@@ -73,24 +97,17 @@ public:
     //  All 66's means all pieces are in home.
 
     // How does our current position compare to our last position?
-    const int ourLastSum = sumAsGreen(ourLastPiecePositions_, ourColor_);
-    ourLastPiecePositions_ = sorry.getPiecePositionsForPlayer(ourColor_);
-    const int ourCurrentSum = sumAsGreen(ourLastPiecePositions_, ourColor_);
-    totalReward += (ourCurrentSum - ourLastSum) / (66.0*4);
+    const int ourCurrentSum = sumAsGreen(sorry.getPiecePositionsForPlayer(ourColor_), ourColor_);
+    totalReward += (ourCurrentSum - ourLastSum_) / (66.0*4);
+    ourLastSum_ = ourCurrentSum;
 
     // How does the opponent's current position compare to their last position?
-    const int opponentLastSum = sumAsGreen(opponentLastPiecePositions_, opponentColor_);
-    opponentLastPiecePositions_ = sorry.getPiecePositionsForPlayer(opponentColor_);
-    const int opponentCurrentSum = sumAsGreen(opponentLastPiecePositions_, opponentColor_);
-    totalReward -= (opponentCurrentSum - opponentLastSum) / (66.0*4);
+    const int opponentCurrentSum = sumAsGreen(sorry.getPiecePositionsForPlayer(opponentColor_), opponentColor_);
+    totalReward -= (opponentCurrentSum - opponentLastSum_) / (66.0*4);
+    opponentLastSum_ = opponentCurrentSum;
 
     return totalReward;
   }
-private:
-  sorry::engine::PlayerColor ourColor_;
-  sorry::engine::PlayerColor opponentColor_;
-  std::array<int,4> ourLastPiecePositions_;
-  std::array<int,4> opponentLastPiecePositions_;
 };
 
 // =================================================================================================
@@ -172,8 +189,9 @@ public:
     // Start training
     constexpr int kEpisodeCount = 1'000'000;
     int episodeIndex = 0;
+    int stepIndex=0;
     while (episodeIndex<kEpisodeCount) {
-      runEpisode(episodeIndex);
+      runEpisode(episodeIndex, stepIndex);
 
       if (shouldAddSelfToPool()) {
         cout << "Adding self to pool" << endl;
@@ -241,7 +259,7 @@ private:
     }
   }
 
-  void runEpisode(int episodeIndex) {
+  void runEpisode(int episodeIndex, int &stepIndex) {
     ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
 
     // Reset the game environment.
@@ -265,11 +283,11 @@ private:
     std::vector<float> valueFunctionLosses;
 
     // Define the training function.
-    auto train = [&](){
+    auto train = [&, this](){
       // Current observation is `sorry`.
       // Previous observation is `lastObservation`.
       // Calculate the reward for the action we took.
-      float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry);
+      float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry, stepIndex, episodeIndex, summaryWriter_);
       episodeTotalReward += reward;
       // We need to update the weights of the:
       //  1. Policy network, which requires:
@@ -283,11 +301,11 @@ private:
       //    - The reward we received
       float valueFunctionLoss = pythonTrainingUtil_->train(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, sorry.gameDone());
       valueFunctionLosses.push_back(valueFunctionLoss);
+      ++stepIndex;
     };
 
     // Run an entire episode.
     bool weTookAnActionBefore = false;
-    int stepIndex=0;
     while (!sorry.gameDone()) {
       const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
       if (playerTurn == opponentColor_) {
@@ -328,7 +346,6 @@ private:
         lastObservation = currentObservation;
         lastValidActionsArray = validActionsArray;
       }
-      ++stepIndex;
     }
 
     // Game is done.
