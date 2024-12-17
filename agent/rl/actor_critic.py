@@ -227,14 +227,15 @@ def padActionsAndGetMask(validActions):
   validActionMask = validActionMask[:, None]
   return paddedActions, validActionMask
 
-def updateAndReturnLoss(policyNetwork, valueNetwork, policyOptimizer, valueOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, gamma):
+def updateAndReturnLoss(policyNetwork, valueNetwork, policyOptimizer, valueOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, done, gamma):
   getProbabilityActionTupleAndGradient = nnx.jit(nnx.value_and_grad(getProbabilityAndActionTuple, argnums=1, has_aux=True))
   (probability, actionTuple), policyGradient = getProbabilityActionTupleAndGradient(rngKey, policyNetwork, lastObservation, paddedActions, validActionMask)
 
   # Calculate the advantage
   lastValue = valueNetwork(lastObservation)
   currentValue = valueNetwork(currentObservation)
-  advantage = reward + gamma * currentValue - lastValue
+  doneMask = jnp.where(done, 0.0, 1.0)
+  advantage = reward + doneMask * (gamma * currentValue) - lastValue
 
   # Scale the policy gradient by the advantage
   policyGradient = jax.tree.map(lambda g: g * advantage, policyGradient)
@@ -246,16 +247,14 @@ def updateAndReturnLoss(policyNetwork, valueNetwork, policyOptimizer, valueOptim
   #  for gradient descent ends up doing gradient ascent.
   policyOptimizer.update(policyGradient)
 
-  def valueLoss(valueNetwork, lastObservation, currentObservation, reward):
+  def valueLoss(valueNetwork, lastObservation, currentObservation, reward, doneMask):
     lastValue = valueNetwork(lastObservation)
-    # jax.debug.print(f'Last value: {lastValue}')
     value = valueNetwork(currentObservation)
-    # jax.debug.print(f'Value: {value}')
-    target = reward + gamma * jax.lax.stop_gradient(value)
+    target = reward + doneMask * (gamma * jax.lax.stop_gradient(value))
     return jnp.mean((lastValue - target)**2) / 2.0
 
   # Take the gradient of and update the value network
-  loss, valueGradient = nnx.value_and_grad(valueLoss)(valueNetwork, lastObservation, currentObservation, reward)
+  loss, valueGradient = nnx.value_and_grad(valueLoss)(valueNetwork, lastObservation, currentObservation, reward, doneMask)
   valueOptimizer.update(valueGradient)
   return loss
 
@@ -370,7 +369,7 @@ class TrainingUtilClass:
     (logProbability, actionTuple) = self.getProbabilityAndActionTuple(rngKey, self.policyNetwork, observation, paddedActions, validActionMask)
     return actionTuple, rngKey
 
-  def train(self, lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, gamma):
+  def train(self, lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, done, gamma):
     # Convert observations to a format ready for the networks
     lastObservation = createObservationForModel(jnp.asarray(lastObservation))
     currentObservation = createObservationForModel(jnp.asarray(currentObservation))
@@ -379,6 +378,6 @@ class TrainingUtilClass:
     paddedActions, validActionMask = padActionsAndGetMask(lastValidActionsArray)
 
     # Call jitted update function
-    loss = self.jittedUpdate(self.policyNetwork, self.valueNetwork, self.policyNetworkOptimizer, self.valueNetworkOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, gamma)
+    loss = self.jittedUpdate(self.policyNetwork, self.valueNetwork, self.policyNetworkOptimizer, self.valueNetworkOptimizer, lastObservation, reward, currentObservation, rngKey, paddedActions, validActionMask, jnp.array(done), gamma)
 
     return loss

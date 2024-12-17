@@ -30,8 +30,8 @@ std::pair<sorry::engine::Action, py::object> ActorCriticTrainingUtil::getActionA
   return {common::actionFromTuple(actionTuple, playerColor), rngKey};
 }
 
-float ActorCriticTrainingUtil::train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, py::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray) {
-  py::object loss = trainingUtilInstance_.attr("train")(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, kGamma);
+float ActorCriticTrainingUtil::train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, py::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray, bool gameDone) {
+  py::object loss = trainingUtilInstance_.attr("train")(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, gameDone, kGamma);
   return loss.cast<float>();
 }
 

@@ -22,7 +22,7 @@ public:
       const std::vector<std::vector<int>> &validActionsArray);
 
   // Returns the value function loss.
-  float train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, pybind11::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray);
+  float train(const std::vector<int> &lastObservation, float reward, const std::vector<int> &currentObservation, pybind11::object rngKey, const std::vector<std::vector<int>> &lastValidActionsArray, bool gameDone);
   void saveCheckpoint();
 
   pybind11::object getPythonTrainingUtilInstance() const {

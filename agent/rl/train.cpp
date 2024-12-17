@@ -281,7 +281,7 @@ private:
       //    - The state before the action was taken
       //    - The state after the action was taken
       //    - The reward we received
-      float valueFunctionLoss = pythonTrainingUtil_->train(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray);
+      float valueFunctionLoss = pythonTrainingUtil_->train(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, sorry.gameDone());
       valueFunctionLosses.push_back(valueFunctionLoss);
     };
 
