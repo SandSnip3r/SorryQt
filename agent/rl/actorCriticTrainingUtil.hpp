@@ -30,8 +30,8 @@ public:
   }
 private:
   static constexpr float kGamma{0.99};
-  static constexpr float kPolicyNetworkLearningRate{0.00003};
-  static constexpr float kValueNetworkLearningRate{0.0001};
+  static constexpr float kPolicyNetworkLearningRate{0.0001};
+  static constexpr float kValueNetworkLearningRate{0.003};
   static constexpr std::string_view kCheckpointDirectoryName{"latest"};
   pybind11::module jaxModule_;
   pybind11::object summaryWriter_;

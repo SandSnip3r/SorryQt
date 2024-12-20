@@ -2,6 +2,10 @@
 
 namespace sorry::agent {
 
+RandomAgent::RandomAgent(int seed) {
+  this->seed(seed);
+}
+
 void RandomAgent::seed(int seed) {
   eng_ = std::mt19937(seed);
 }

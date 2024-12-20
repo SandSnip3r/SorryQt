@@ -65,8 +65,9 @@ def loadPolicyNetworkFromCheckpoint(checkpointPath):
 class ValueNetwork(nnx.Module):
   def __init__(self, rngs):
     inFeatureSize = 1+11*5+2*4*67
-    self.linear1 = nnx.Linear(in_features=inFeatureSize, out_features=128, rngs=rngs)
-    self.linear2 = nnx.Linear(in_features=128, out_features=1, rngs=rngs)
+    hiddenFeatureSize = 512
+    self.linear1 = nnx.Linear(in_features=inFeatureSize, out_features=hiddenFeatureSize, rngs=rngs)
+    self.linear2 = nnx.Linear(in_features=hiddenFeatureSize, out_features=1, rngs=rngs)
 
   def __call__(self, x):
     x = self.linear1(x)

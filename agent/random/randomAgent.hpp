@@ -9,6 +9,8 @@ namespace sorry::agent {
 
 class RandomAgent : public BaseAgent {
 public:
+  RandomAgent() = default;
+  RandomAgent(int seed);
   void seed(int seed) override;
   void run(const sorry::engine::Sorry &sorry) override;
   std::vector<ActionScore> getActionScores() const override;

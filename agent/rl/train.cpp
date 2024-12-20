@@ -14,14 +14,15 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
-#include <iostream>
-#include <iomanip>
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <deque>
 #include <fstream>
 #include <functional>
+#include <iomanip>
+#include <iostream>
+#include <map>
 #include <random>
 
 namespace py = pybind11;
@@ -52,19 +53,23 @@ private:
 class RewardTracker {
 public:
   RewardTracker(const sorry::engine::Sorry &sorry, sorry::engine::PlayerColor ourColor, sorry::engine::PlayerColor opponentColor) : ourColor_(ourColor), opponentColor_(opponentColor) {
+    reset(sorry);
+  }
+
+  void reset(const sorry::engine::Sorry &sorry) {
     ourLastSum_ = sumAsGreen(sorry.getPiecePositionsForPlayer(ourColor_), ourColor_);
     opponentLastSum_ = sumAsGreen(sorry.getPiecePositionsForPlayer(opponentColor_), opponentColor_);
   }
 
-  float calculateRewardForCurrentStateOfGame(const sorry::engine::Sorry &sorry, int stepIndex, int episodeIndex, py::object &summaryWriter) {
+  float calculateRewardForCurrentStateOfGame(const sorry::engine::Sorry &sorry, int stepIndex, py::object &summaryWriter) {
     const float ratio = static_cast<float>(std::min(stepIndex, kStepsToAnnealOver)) / kStepsToAnnealOver;
     if ((stepIndex+1) % 1000 == 0) {
-      summaryWriter.attr("add_scalar")("reward_ratio", ratio, episodeIndex);
+      summaryWriter.attr("add_scalar")("reward_ratio", ratio, stepIndex);
     }
     return calculatePerfectReward(sorry) * ratio + calculateDenseReward(sorry) * (1.0 - ratio);
   }
 private:
-  static constexpr int kStepsToAnnealOver{500'000};
+  static constexpr int kStepsToAnnealOver{1'000'000};
   sorry::engine::PlayerColor ourColor_;
   sorry::engine::PlayerColor opponentColor_;
   int ourLastSum_;
@@ -159,47 +164,261 @@ char colorToChar(sorry::engine::PlayerColor color) {
   return sorry::engine::toString(color)[0];
 }
 
+// Throws if action is invalid.
+void checkIfActionIsValid(const sorry::engine::Sorry &sorry, const std::vector<sorry::engine::Action> &validActions, const sorry::engine::Action &action) {
+  if (std::find(validActions.begin(), validActions.end(), action) == validActions.end()) {
+    std::cout << "Current state: " << sorry.toString() << std::endl;
+    std::cout << "Valid actions were:" << std::endl;
+    for (const sorry::engine::Action &a : validActions) {
+      std::cout << "  " << a.toString() << std::endl;
+    }
+    throw std::runtime_error("Invalid action after mask "+action.toString());
+  }
+}
+
+// =================================================================================================
+
+class OpponentPool {
+public:
+  void addOpponent(sorry::agent::BaseAgent *agent) {
+    opponents_.push_back(agent);
+  }
+  sorry::agent::BaseAgent* pickRandomOpponent(std::mt19937 &randomEngine) {
+    std::vector<int> weights(opponents_.size());
+    std::iota(weights.begin(), weights.end(), 2);
+    std::discrete_distribution<int> dist(weights.begin(), weights.end());
+    // std::uniform_int_distribution<size_t> dist(0, opponents_.size()-1);
+    return opponents_[dist(randomEngine)];
+  }
+  int size() const {
+    return opponents_.size();
+  }
+  const std::vector<sorry::agent::BaseAgent*>& opponents() const {
+    return opponents_;
+  }
+private:
+  std::vector<sorry::agent::BaseAgent*> opponents_;
+};
+
+// =================================================================================================
+
+// An environment consists of:
+//  - A Sorry engine
+//  - An opponent
+//  - A reward tracker
+// TODO: For now, we assume that the trained agent always goes first. If instead the "opponent" went first, we would need to have them take their action before returning an observation.
+class Environment {
+public:
+  void setOpponent(sorry::agent::BaseAgent *opponent) {
+    opponent_ = opponent;
+  }
+
+  const sorry::agent::BaseAgent *getOpponent() const {
+    return opponent_;
+  }
+
+  std::pair<float, std::optional<sorry::engine::PlayerColor>> step(const sorry::engine::Action &action, std::mt19937 &randomEngine, int stepIndex, OpponentPool &opponentPool, py::object summaryWriter) {
+    if (sorry_.getPlayerTurn() != kOurColor_) {
+      throw std::runtime_error("It is not our turn to play.");
+    }
+    sorry_.doAction(action, randomEngine);
+    const float reward = rewardTracker_.calculateRewardForCurrentStateOfGame(sorry_, stepIndex, summaryWriter);
+
+    // Let the opponent take their turn.
+    while (!sorry_.gameDone() && sorry_.getPlayerTurn() == kOpponentColor_) {
+      if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent_) != nullptr) {
+        // Rotate board since the ReinforceAgent only knows how to play as green.
+        sorry_.rotateBoard(kOpponentColor_, kOurColor_);
+        opponent_->run(sorry_);
+        sorry_.doAction(opponent_->pickBestAction(), randomEngine);
+        sorry_.rotateBoard(kOurColor_, kOpponentColor_);
+      } else {
+        // Opponent is not restricted to playing as green.
+        opponent_->run(sorry_);
+        sorry_.doAction(opponent_->pickBestAction(), randomEngine);
+      }
+    }
+
+    std::optional<sorry::engine::PlayerColor> winner;
+    if (sorry_.gameDone()) {
+      winner = sorry_.getWinner();
+    }
+
+    if (winner.has_value()) {
+      reset(randomEngine, opponentPool);
+    }
+
+    return {reward, winner};
+  }
+
+  void reset(std::mt19937 &randomEngine, OpponentPool &opponentPool) {
+    sorry_.reset(randomEngine);
+    rewardTracker_.reset(sorry_);
+    // Grab a new opponent for the duration of the next game.
+    cout << "Updating opponent from ";
+    if (opponent_ != nullptr) {
+      cout << opponent_->name();
+    } else {
+      cout << "NONE";
+    }
+    setOpponent(opponentPool.pickRandomOpponent(randomEngine));
+    cout << " to " << opponent_->name() << endl;
+  }
+
+  const sorry::engine::Sorry& getSorry() const {
+    return sorry_;
+  }
+
+  bool done() const {
+    return sorry_.gameDone();
+  }
+private:
+  const sorry::engine::PlayerColor kOurColor_{sorry::engine::PlayerColor::kGreen};
+  const sorry::engine::PlayerColor kOpponentColor_{sorry::engine::PlayerColor::kBlue};
+  sorry::engine::Sorry sorry_{ kOurColor_, kOpponentColor_ };
+  RewardTracker rewardTracker_{sorry_, kOurColor_, kOpponentColor_};
+  sorry::agent::BaseAgent *opponent_{nullptr};
+};
+
+// =================================================================================================
+
+template<int EnvironmentCount>
+class TrainingData {
+public:
+  void saveObservation(int environmentIndex, std::vector<int> &&observation) {
+    previousObservations_[environmentIndex] = nextObservations_[environmentIndex];
+    nextObservations_[environmentIndex] = std::move(observation);
+  }
+
+  void saveActionInfo(int environmentIndex, const py::object &rngKey, std::vector<std::vector<int>> &&validActionsArray) {
+    rngKeys_[environmentIndex] = rngKey;
+    validActionsArrays_[environmentIndex] = std::move(validActionsArray);
+  }
+
+  void saveReward(int environmentIndex, float reward) {
+    rewards_[environmentIndex] = reward;
+  }
+
+  void saveGameDone(int environmentIndex, bool gameDone) {
+    gameDones_[environmentIndex] = gameDone;
+  }
+
+  const std::array<std::vector<int>, EnvironmentCount>& getPreviousObservations() const {
+    return previousObservations_;
+  }
+
+  const std::array<std::vector<int>, EnvironmentCount>& getNextObservations() const {
+    return nextObservations_;
+  }
+
+  const std::array<py::object, EnvironmentCount>& getRngKeys() const {
+    return rngKeys_;
+  }
+
+  const std::array<std::vector<std::vector<int>>, EnvironmentCount>& getValidActionsArrays() const {
+    return validActionsArrays_;
+  }
+
+  const std::array<float, EnvironmentCount>& getRewards() const {
+    return rewards_;
+  }
+
+  const std::array<bool, EnvironmentCount>& getGameDones() const {
+    return gameDones_;
+  }
+private:
+  std::array<std::vector<int>, EnvironmentCount> previousObservations_;
+  std::array<std::vector<int>, EnvironmentCount> nextObservations_;
+  std::array<py::object, EnvironmentCount> rngKeys_;
+  std::array<std::vector<std::vector<int>>, EnvironmentCount> validActionsArrays_;
+  std::array<float, EnvironmentCount> rewards_;
+  std::array<bool, EnvironmentCount> gameDones_;
+};
+
 // =================================================================================================
 
 class Trainer {
 public:
   void trainReinforce() {
-    // Load the Python module
     using namespace pybind11::literals;
     py::module jaxModule = py::module::import("actor_critic");
     py::module tensorboardX = py::module::import("tensorboardX");
     summaryWriter_ = tensorboardX.attr("SummaryWriter")("flush_secs"_a=1);
+    python_wrapper::ActorCriticTrainingUtil pythonTrainingUtil(jaxModule, summaryWriter_, kRestoreFromCheckpoint);
 
-    // Initialize python module/model
-    pythonTrainingUtil_ = python_wrapper::ActorCriticTrainingUtil(jaxModule, summaryWriter_, kRestoreFromCheckpoint);
-
-    // Set up a single random agent as the first opponent for our agent
-    opponentPool_.push_back(new sorry::agent::RandomAgent());
-    resetOpponentStats();
-
-    // Seed all random engines
+    constexpr int kEnvironmentCount = 128;
     constexpr int kSeed = 0x533D;
-    randomEngine_ = std::mt19937{kSeed};
-    pythonTrainingUtil_->setSeed(kSeed);
-    // Seed our opponents
-    for (sorry::agent::BaseAgent *opponent : opponentPool_) {
-      opponent->seed(kSeed);
+    mt19937 randomEngine{kSeed};
+    pythonTrainingUtil.setSeed(kSeed);
+
+    // Add an agent which acts randomly as our first opponent.
+    sorry::agent::BaseAgent *randomAgent = new sorry::agent::RandomAgent();
+    randomAgent->seed(kSeed);
+    randomAgent->setName("RandomAgent");
+    opponentPool_.addOpponent(randomAgent);
+    opponentStats_.emplace(std::piecewise_construct,
+                            std::forward_as_tuple(opponentPool_.opponents().back()),
+                            std::forward_as_tuple(kMinGamesPerOpponent));
+
+    // Create & reset all environments
+    array<Environment, kEnvironmentCount> environments;
+    for (Environment &environment : environments) {
+      environment.reset(randomEngine, opponentPool_);
     }
 
-    // Start training
-    constexpr int kEpisodeCount = 1'000'000;
-    int episodeIndex = 0;
-    int stepIndex=0;
-    while (episodeIndex<kEpisodeCount) {
-      runEpisode(episodeIndex, stepIndex);
+    int stepIndex = 0;
+    while (true) {
+      // Take a step in each environment, meanwhile collecting data for training.
+      for (int environmentIndex=0; environmentIndex<environments.size(); ++environmentIndex) {
+        Environment &environment = environments[environmentIndex];
+        // Take a step in the environment.
+        const sorry::engine::Sorry &sorry = environment.getSorry();
+        if (sorry.getPlayerTurn() != sorry::engine::PlayerColor::kGreen) {
+          throw std::runtime_error("trainReinforce(): It is not our turn to play.");
+        }
+        std::vector<int> currentObservation = common::makeObservation(sorry);
 
-      if (shouldAddSelfToPool()) {
-        cout << "Adding self to pool" << endl;
-        opponentPool_.push_back(new sorry::agent::ReinforceAgent(pythonTrainingUtil_->getPythonTrainingUtilInstance()));
-        opponentPool_.back()->seed(kSeed);
-        resetOpponentStats();
+        // Take an action according to the policy, masked by the valid actions.
+        const std::vector<sorry::engine::Action> validActions = sorry.getActions();
+        std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(validActions);
+        sorry::engine::Action action;
+        py::object rngKey;
+        std::tie(action, rngKey) = pythonTrainingUtil.getActionAndKeyUsed(currentObservation, sorry::engine::PlayerColor::kGreen, stepIndex, validActionsArray);
+
+        // Do a quick check to make sure the model's action is valid.
+        checkIfActionIsValid(sorry, validActions, action);
+
+        auto [reward, winner] = environment.step(action, randomEngine, stepIndex, opponentPool_, summaryWriter_);
+
+        if (winner.has_value()) {
+          ++completedEpisodeCount_;
+          cout << "Episode #" << completedEpisodeCount_ << " completed (Environment #" << environmentIndex << ")" << endl;
+          // Save the result of the game.
+          const float gameResult = (*winner == sorry::engine::PlayerColor::kGreen ? 1.0 : -1.0);
+          addResultForOpponent(gameResult, environment.getOpponent(), stepIndex);
+
+          // Maybe add self to pool.
+          if (shouldAddSelfToPool()) {
+            cout << "Adding self to pool" << endl;
+            sorry::agent::BaseAgent *selfAsOpponent = new sorry::agent::ReinforceAgent(pythonTrainingUtil.getPythonTrainingUtilInstance());
+            selfAsOpponent->seed(kSeed);
+            selfAsOpponent->setName("self_v" + std::to_string(opponentPool_.size()-1));
+            opponentPool_.addOpponent(selfAsOpponent);
+            opponentStats_.emplace(std::piecewise_construct,
+                                    std::forward_as_tuple(opponentPool_.opponents().back()),
+                                    std::forward_as_tuple(kMinGamesPerOpponent));
+          }
+        }
+
+        const std::vector<int> nextObservation = common::makeObservation(environment.getSorry());
+        float valueFunctionLoss = pythonTrainingUtil.train(currentObservation, reward, nextObservation, rngKey, validActionsArray, winner.has_value());
+        summaryWriter_.attr("add_scalar")("value_loss", valueFunctionLoss, stepIndex);
+        summaryWriter_.attr("add_scalar")("opponent_count", opponentPool_.size(), stepIndex);
+
+        // Update the step index.
+        ++stepIndex;
       }
-      ++episodeIndex;
+      cout << stepIndex << " steps completed" << endl;
     }
   }
 private:
@@ -207,194 +426,42 @@ private:
   static constexpr bool kAddSelfToPool{true};
   static constexpr int kPrintEpisodeCompletionFrequency{20};
   static constexpr int kSaveCheckpointFrequency{1000};
-  static constexpr int kMinGamesPerOpponent{250};
-  static constexpr sorry::engine::PlayerColor ourColor_{sorry::engine::PlayerColor::kGreen};
-  static constexpr sorry::engine::PlayerColor opponentColor_{sorry::engine::PlayerColor::kBlue};
+  static constexpr int kMinGamesPerOpponent{256};
+  int completedEpisodeCount_{0};
+
+  // A pool of opponents to train against.
+  OpponentPool opponentPool_;
   py::object summaryWriter_;
-  std::mt19937 randomEngine_;
-  std::vector<sorry::agent::BaseAgent*> opponentPool_;
-  std::optional<python_wrapper::ActorCriticTrainingUtil> pythonTrainingUtil_;
-  std::vector<OpponentStats> opponentStats_;
+  std::map<const sorry::agent::BaseAgent*,OpponentStats> opponentStats_;
 
   bool shouldAddSelfToPool() const {
     if (!kAddSelfToPool) {
       //  For now, we are just focused on doing as well as possible against the initial opponent.
       return false;
     }
-    constexpr float kMinAverageResult = 0.4;
+    constexpr float kMinAverageResult = 0.2;
     // We should have played against every opponent at least `kMinGamesPerOpponent` times, for statistical significance.
     // The minimum average result should be at least `kMinAverageResult`.
-    std::cout << "Stats: [ ";
-    for (const OpponentStats &opponentStats : opponentStats_) {
-      std::cout << "{" << opponentStats.gameCount() << ", " << opponentStats.averageResult() << "}, ";
+    std::cout << "Stats: [\n";
+    for (const auto &[opponent, opponentStats] : opponentStats_) {
+      std::cout << "  { " << opponent->name() << ", " << opponentStats.gameCount() << ", " << opponentStats.averageResult() << " },\n";
     }
     std::cout << "]" << std::endl;
-    for (const OpponentStats &opponentStats : opponentStats_) {
+    for (const auto &[opponent, opponentStats] : opponentStats_) {
       if (opponentStats.gameCount() < kMinGamesPerOpponent) {
         return false;
       }
     }
-    auto minElementIt = std::min_element(opponentStats_.begin(), opponentStats_.end(), [](const OpponentStats &a, const OpponentStats &b) {
-      return a.averageResult() < b.averageResult();
+    auto minElementIt = std::min_element(opponentStats_.begin(), opponentStats_.end(), [](const auto &lhs, const auto &rhs) {
+      return lhs.second.averageResult() < rhs.second.averageResult();
     });
-    return minElementIt->averageResult() >= kMinAverageResult;
+    return minElementIt->second.averageResult() >= kMinAverageResult;
   }
 
-  void resetOpponentStats() {
-    opponentStats_.clear();
-    for (int i=0; i<opponentPool_.size(); ++i) {
-      opponentStats_.emplace_back(kMinGamesPerOpponent);
-    }
+  void addResultForOpponent(float result, const sorry::agent::BaseAgent *opponent, int stepIndex) {
+    opponentStats_.at(opponent).pushGameResult(result);
+    summaryWriter_.attr("add_scalar")("result_vs_"+std::string(opponent->name()), result, stepIndex);
   }
-
-  // Throws if action is invalid.
-  void checkIfActionIsValid(const sorry::engine::Sorry &sorry, const std::vector<sorry::engine::Action> &validActions, const sorry::engine::Action &action) {
-    if (std::find(validActions.begin(), validActions.end(), action) == validActions.end()) {
-      std::cout << "Current state: " << sorry.toString() << std::endl;
-      std::cout << "Valid actions were:" << std::endl;
-      for (const sorry::engine::Action &a : validActions) {
-        std::cout << "  " << a.toString() << std::endl;
-      }
-      throw std::runtime_error("Invalid action after mask "+action.toString());
-    }
-  }
-
-  void runEpisode(int episodeIndex, int &stepIndex) {
-    ScopedTimer timer(summaryWriter_, "entire_episode", episodeIndex);
-
-    // Reset the game environment.
-    sorry::engine::Sorry sorry({ourColor_, opponentColor_});
-    sorry.reset(randomEngine_);
-
-    // Randomly choose one opponent from the pool.
-    std::uniform_int_distribution<size_t> dist(0, opponentPool_.size()-1);
-    size_t opponentIndex = dist(randomEngine_);
-    sorry::agent::BaseAgent *opponent = opponentPool_[opponentIndex];
-
-    // Use a separate structure for determining rewards.
-    RewardTracker rewardTracker(sorry, ourColor_, opponentColor_);
-    float episodeTotalReward = 0.0;
-
-    // Set up some data structures used during the episode.
-    std::vector<int> currentObservation = common::makeObservation(sorry);
-    std::vector<int> lastObservation;
-    std::vector<std::vector<int>> lastValidActionsArray;
-    py::object rngKey;
-    std::vector<float> valueFunctionLosses;
-
-    // Define the training function.
-    auto train = [&, this](){
-      // Current observation is `sorry`.
-      // Previous observation is `lastObservation`.
-      // Calculate the reward for the action we took.
-      float reward = rewardTracker.calculateRewardForCurrentStateOfGame(sorry, stepIndex, episodeIndex, summaryWriter_);
-      episodeTotalReward += reward;
-      // We need to update the weights of the:
-      //  1. Policy network, which requires:
-      //    - The gradient of the log probability of the action we took
-      //      - Which can come from the state and the rngkey used when selecting our action
-      //    - The advantage of the action we took
-      //      - advantage = reward + gamma * value(currentObservation) - value(lastObservation)
-      //  2. Value network, which requires:
-      //    - The state before the action was taken
-      //    - The state after the action was taken
-      //    - The reward we received
-      float valueFunctionLoss = pythonTrainingUtil_->train(lastObservation, reward, currentObservation, rngKey, lastValidActionsArray, sorry.gameDone());
-      valueFunctionLosses.push_back(valueFunctionLoss);
-      ++stepIndex;
-    };
-
-    // Run an entire episode.
-    bool weTookAnActionBefore = false;
-    while (!sorry.gameDone()) {
-      const sorry::engine::PlayerColor playerTurn = sorry.getPlayerTurn();
-      if (playerTurn == opponentColor_) {
-        // Do opponent's turn
-        sorry::engine::Action action;
-        if (dynamic_cast<sorry::agent::ReinforceAgent*>(opponent) != nullptr) {
-          // Reinforce Agent was trained to play as green. Rotate the board so that they play from our position.
-          sorry.rotateBoard(opponentColor_, ourColor_);
-          opponent->run(sorry);
-          action = opponent->pickBestAction();
-          action.rotateBoard(ourColor_, opponentColor_);
-          // Put board back.
-          sorry.rotateBoard(ourColor_, opponentColor_);
-        } else {
-          // No need to rotate the board for an agent which is not a ReinforceAgent.
-          opponent->run(sorry);
-          action = opponent->pickBestAction();
-        }
-        sorry.doAction(action, randomEngine_);
-      } else {
-        // Our turn
-        currentObservation = common::makeObservation(sorry);
-        if (weTookAnActionBefore) {
-          train();
-        }
-        // Take an action according to the policy, masked by the valid actions.
-        const std::vector<sorry::engine::Action> validActions = sorry.getActions();
-        const std::vector<std::vector<int>> validActionsArray = common::createArrayOfActions(validActions);
-        sorry::engine::Action action;
-        std::tie(action, rngKey) = pythonTrainingUtil_->getActionAndKeyUsed(currentObservation, playerTurn, episodeIndex, validActionsArray);
-
-        // Do a quick check to make sure the model's action is valid.
-        checkIfActionIsValid(sorry, validActions, action);
-
-        sorry.doAction(action, randomEngine_);
-        weTookAnActionBefore = true;
-        // Save the current observation as the last
-        lastObservation = currentObservation;
-        lastValidActionsArray = validActionsArray;
-      }
-    }
-
-    // Game is done.
-    train();
-
-    // Log reward.
-    summaryWriter_.attr("add_scalar")("total_reward_vs_opponent_"+std::to_string(opponentIndex), episodeTotalReward, episodeIndex);
-
-    // Log the game result.
-    float gameResult;
-    sorry::engine::PlayerColor winner = sorry.getWinner();
-    if (winner == ourColor_) {
-      gameResult = 1.0;
-    } else {
-      gameResult = -1.0;
-    }
-    summaryWriter_.attr("add_scalar")("result_vs_opponent_"+std::to_string(opponentIndex), gameResult, episodeIndex);
-
-    // Track the our win rate against the opponent.
-    opponentStats_.at(opponentIndex).pushGameResult(gameResult);
-
-    // Log stats about the losses.
-    auto [valueLossMean, valueLossStdDev] = calculateMeanAndStdDev(valueFunctionLosses);
-    summaryWriter_.attr("add_scalar")("value_loss/mean", valueLossMean, episodeIndex);
-    summaryWriter_.attr("add_scalar")("value_loss/std_dev", valueLossStdDev, episodeIndex);
-
-    // Log stats about our opponents.
-    if (kAddSelfToPool) {
-      summaryWriter_.attr("add_scalar")("opponent_count", opponentPool_.size(), episodeIndex);
-    }
-
-    if ((episodeIndex+1)%kPrintEpisodeCompletionFrequency == 0) {
-      cout << episodeIndex+1 << " episodes completed" << endl;
-    }
-    if ((episodeIndex+1)%kSaveCheckpointFrequency == 0) {
-      pythonTrainingUtil_->saveCheckpoint();
-    }
-  }
-
-  sorry::engine::PlayerColor pickRandomColor() {
-    const std::array<sorry::engine::PlayerColor, 4> colors = {
-      sorry::engine::PlayerColor::kGreen,
-      sorry::engine::PlayerColor::kYellow,
-      sorry::engine::PlayerColor::kRed,
-      sorry::engine::PlayerColor::kBlue
-    };
-    std::uniform_int_distribution<size_t> dist(0, colors.size()-1);
-    return colors[dist(randomEngine_)];
-  };
 };
 
 // =================================================================================================

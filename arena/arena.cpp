@@ -13,9 +13,10 @@ using namespace sorry;
 int main() {
   auto randomEngine = common::createRandomEngine();
   pybind11::scoped_interpreter guard;
-  // agent::ReinforceAgent agent1("tmp");
-  SorryMcts agent1(2);
-  agent::ReinforceAgent agent2("actor_critic_7_opponents");
+  agent::ReinforceAgent agent1("a2c_god3");
+  SorryMcts agent2(2);
+  // agent::ReinforceAgent agent1("actor_critic_better_reward");
+  // SorryMcts agent2(2);
   int agent1WinCount = 0;
   int agent2WinCount = 0;
   constexpr int kGameCount = 10000;
@@ -24,14 +25,15 @@ int main() {
     sorry.reset(randomEngine);
     while (!sorry.gameDone()) {
       if (sorry.getPlayerTurn() == engine::PlayerColor::kGreen) {
-        // agent1.run(sorry);
-        agent1.run(sorry, 1000);
+        agent1.run(sorry);
+        // agent1.run(sorry, 1000);
         sorry::engine::Action action = agent1.pickBestAction();
         sorry.doAction(action, randomEngine);
       } else {
         // Rotate the board so that it looks like we are green.
         sorry.rotateBoard(engine::PlayerColor::kBlue, engine::PlayerColor::kGreen);
-        agent2.run(sorry);
+        // agent2.run(sorry);
+        agent2.run(sorry, 1000);
         sorry::engine::Action action = agent2.pickBestAction();
         sorry.doAction(action, randomEngine);
         sorry.rotateBoard(engine::PlayerColor::kGreen, engine::PlayerColor::kBlue);

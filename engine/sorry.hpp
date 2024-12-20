@@ -19,7 +19,7 @@ namespace sorry::engine {
 // Singleton class for the rules of the game.
 struct SorryRules {
   bool sorryCanMoveForward4{true};
-  bool twoGetsAnotherTurn{true};
+  bool twoGetsAnotherTurn{false};
   bool startWithOnePieceOutOfStart{true};
 
   // The game is slightly different depending on the order of discard & shuffle. If false, shuffle first then discard.
